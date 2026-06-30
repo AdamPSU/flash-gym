@@ -27,6 +27,42 @@ export type ExtractKeyframesPayload = {
   prefer_gpu_decode: boolean;
 };
 
+export type EditHazardsPayload = {
+  job_id: string;
+  keyframe_manifest_path: string;
+  approved_frame_ids: string[];
+  prompt: string;
+  max_images: number;
+  seed: number;
+  num_inference_steps: number;
+  guidance_scale: number;
+  max_dimension: number;
+};
+
+export type SegmentHazardsPayload = {
+  job_id: string;
+  edit_manifest_path: string;
+  approved_frame_ids: string[];
+  concept_prompt: string;
+  max_images: number;
+  batch_size: number;
+  score_threshold: number;
+  mask_threshold: number;
+};
+
+export type InlineSegmentHazardsPayload = {
+  mode: "inline";
+  job_id: string;
+  frame_ids: string[];
+  image_data_urls: string[];
+  timestamps_ms: number[];
+  concept_prompt: string;
+  max_images: number;
+  batch_size: number;
+  score_threshold: number;
+  mask_threshold: number;
+};
+
 export type ExtractedKeyframe = {
   frame_id: string;
   path: string;
@@ -48,6 +84,52 @@ export type ExtractKeyframesResponse = {
   details?: unknown;
 };
 
+export type EditedHazardImage = {
+  frame_id: string;
+  source_path?: string;
+  edited_path: string;
+  preview_url?: string;
+  timestamp_ms?: number;
+};
+
+export type EditHazardsResponse = {
+  job_id: string;
+  status: string;
+  manifest_path: string;
+  edited_dir: string;
+  edited_count: number;
+  images?: EditedHazardImage[];
+  error?: string;
+  details?: unknown;
+};
+
+export type SegmentationInstance = {
+  instance_id: string;
+  mask_path: string;
+};
+
+export type SegmentationImage = {
+  frame_id: string;
+  edited_path: string;
+  preview_url?: string;
+  timestamp_ms?: number;
+  width?: number;
+  height?: number;
+  instances?: SegmentationInstance[];
+};
+
+export type SegmentHazardsResponse = {
+  job_id: string;
+  status: string;
+  manifest_path: string;
+  masks_dir: string;
+  segmented_count: number;
+  instance_count: number;
+  images?: SegmentationImage[];
+  error?: string;
+  details?: unknown;
+};
+
 export type LoadingButtonState = {
   busy: boolean;
   label: string;
@@ -62,6 +144,8 @@ export type DemoRunMetadata = {
 
 const DEMO_FRAME_IDS = ["kf_0001", "kf_0002", "kf_0003", "kf_0004", "kf_0005"];
 export const SAM3_DEMO_CONCEPT_PROMPT = "object on the floor";
+export const HAZARD_EDIT_PROMPT =
+  "Add one realistic floor safety hazard to the scene while preserving camera angle, lighting, and venue layout.";
 const DEMO_HAZARDS: Record<string, string> = {
   kf_0001: "wet floor",
   kf_0002: "loose cable",
@@ -182,6 +266,51 @@ export function buildExtractKeyframesPayload(
   };
 }
 
+export function buildEditHazardsPayload(jobId: string, frames: ReviewFrame[]): EditHazardsPayload {
+  const approvedFrameIds = frames.filter((frame) => !frame.deleted).map((frame) => frame.frameId);
+  return {
+    job_id: jobId,
+    keyframe_manifest_path: buildManifestPath(jobId),
+    approved_frame_ids: approvedFrameIds,
+    prompt: HAZARD_EDIT_PROMPT,
+    max_images: approvedFrameIds.length,
+    seed: 7,
+    num_inference_steps: 4,
+    guidance_scale: 1,
+    max_dimension: 768,
+  };
+}
+
+export function buildSegmentHazardsPayload(jobId: string, frames: ReviewFrame[]): SegmentHazardsPayload {
+  const approvedFrameIds = frames.filter((frame) => !frame.deleted).map((frame) => frame.sourceFrameId ?? frame.frameId);
+  return {
+    job_id: jobId,
+    edit_manifest_path: `/runpod-volume/jobs/${jobId}/edit_manifest.json`,
+    approved_frame_ids: approvedFrameIds,
+    concept_prompt: SAM3_DEMO_CONCEPT_PROMPT,
+    max_images: approvedFrameIds.length,
+    batch_size: 2,
+    score_threshold: 0.35,
+    mask_threshold: 0.5,
+  };
+}
+
+export function buildInlineSegmentHazardsPayload(jobId: string, frames: ReviewFrame[]): InlineSegmentHazardsPayload {
+  const approvedFrames = frames.filter((frame) => !frame.deleted && frame.previewUrl);
+  return {
+    mode: "inline",
+    job_id: jobId,
+    frame_ids: approvedFrames.map((frame) => frame.sourceFrameId ?? frame.frameId),
+    image_data_urls: approvedFrames.map((frame) => frame.previewUrl as string),
+    timestamps_ms: approvedFrames.map((frame) => frame.timestampMs ?? 0),
+    concept_prompt: SAM3_DEMO_CONCEPT_PROMPT,
+    max_images: approvedFrames.length,
+    batch_size: 2,
+    score_threshold: 0.35,
+    mask_threshold: 0.5,
+  };
+}
+
 export function buildLoadingButtonState(
   requestState: RequestState,
   idleLabel: string,
@@ -205,14 +334,14 @@ export function buildPipelineRun(jobId: string): PipelineStage[] {
     {
       id: "hazard-editing",
       label: "image editing",
-      detail: "Qwen edit contract exists; Flash endpoint is not wired yet.",
-      state: "contract",
+      detail: "Runpod Flash hazard edits from approved keyframes.",
+      state: "waiting",
     },
     {
       id: "segmentation",
       label: "image segmentation",
-      detail: "SAM-3 demo artifacts use a broad object-on-the-floor prompt.",
-      state: "locked",
+      detail: "Runpod Flash SAM3 masks with a broad object-on-the-floor prompt.",
+      state: "waiting",
     },
   ];
 }
@@ -235,6 +364,32 @@ export function framesFromExtractResponse(response: ExtractKeyframesResponse): R
     timestampMs: frame.timestamp_ms,
     deleted: false,
   }));
+}
+
+export function framesFromEditResponse(response: EditHazardsResponse): ReviewFrame[] {
+  return (response.images ?? []).map((image) => ({
+    frameId: image.frame_id,
+    path: image.edited_path,
+    previewUrl: image.preview_url,
+    timestampMs: image.timestamp_ms,
+    deleted: false,
+    sourceFrameId: image.frame_id,
+  }));
+}
+
+export function framesFromSegmentationResponse(response: SegmentHazardsResponse): ReviewFrame[] {
+  return (response.images ?? []).map((image) => {
+    const firstMaskPath = image.instances?.[0]?.mask_path;
+    return {
+      frameId: image.frame_id,
+      path: firstMaskPath ?? image.edited_path,
+      previewUrl: image.preview_url,
+      timestampMs: image.timestamp_ms,
+      deleted: false,
+      sourceFrameId: image.frame_id,
+      prompt: SAM3_DEMO_CONCEPT_PROMPT,
+    };
+  });
 }
 
 function numberedFrames(keyframesDir: string, count: number): ExtractedKeyframe[] {

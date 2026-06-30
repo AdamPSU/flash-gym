@@ -29,6 +29,7 @@ Sources captured on 2026-06-30.
 - User added real keyframes from the venue video under `media/` and clarified that demo extraction should show those keyframes when the user clicks `Extract keyframes`.
 - User clarified that demo mocks should use API keys for one-time artifact generation, phase 3 should use SAM3 after hazard edits are generated under `media/hazards/`, and the frontend mock should use static generated SAM3 artifacts without using the known inserted hazard label.
 - User asked to use WaveSpeed MCP with Wan 2.7 image edit to insert three compact hazards. Generated demo hazard edits were accepted by user inspection and saved under `media/hazards/`.
+- User asked for COCO exports to actually work in the demo frontend. The local demo export now returns COCO JSON plus JSONL download artifacts.
 
 ## Runpod Flash documentation
 

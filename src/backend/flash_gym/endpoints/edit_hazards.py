@@ -35,6 +35,7 @@ phase2_volume = NetworkVolume(
 async def edit_hazards(input_data: dict) -> dict:
     from contextlib import contextmanager
     from pathlib import Path
+    import base64
     import json
     import re
     import threading
@@ -460,6 +461,7 @@ async def edit_hazards(input_data: dict) -> dict:
             "frame_id": frame_id,
             "source_path": str(source_path),
             "edited_path": str(edited_path),
+            "preview_url": f"data:image/png;base64,{base64.b64encode(edited_path.read_bytes()).decode('ascii')}",
             "seed": seed,
             "elapsed_seconds": round(time.time() - image_started_at, 3),
         }
@@ -509,5 +511,6 @@ async def edit_hazards(input_data: dict) -> dict:
         "edited_dir": str(edited_dir),
         "model_id": model_id,
         "edited_count": len(images),
+        "images": images,
         "progress_path": progress_path,
     }

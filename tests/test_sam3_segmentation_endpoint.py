@@ -26,6 +26,21 @@ class Sam3SegmentationEndpointTests(unittest.TestCase):
 
         self.assertNotIn("from flash_gym", source)
 
+    def test_endpoint_returns_reviewable_segmentation_records(self):
+        source = inspect.getsource(segment_hazards)
+
+        self.assertIn("preview_url", source)
+        self.assertIn("data:image/png;base64", source)
+        self.assertIn('"images": segmentation_images', source)
+
+    def test_smoke_endpoint_supports_inline_images_for_real_ui_pipeline(self):
+        source = inspect.getsource(segment_hazards_smoke)
+
+        self.assertIn('mode == "inline"', source)
+        self.assertIn("image_data_urls", source)
+        self.assertIn("frame_ids", source)
+        self.assertIn("preview_url", source)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -52,6 +52,13 @@ class HazardEditEndpointTests(unittest.TestCase):
         self.assertIn("torch.full(", source)
         self.assertIn("float(self._flash_gym_guidance_scale)", source)
 
+    def test_endpoint_returns_reviewable_image_records(self):
+        source = inspect.getsource(edit_hazards)
+
+        self.assertIn("preview_url", source)
+        self.assertIn("data:image/png;base64", source)
+        self.assertIn('"images": images', source)
+
 
 if __name__ == "__main__":
     unittest.main()

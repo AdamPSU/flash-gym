@@ -86,6 +86,7 @@ Current frontend notes:
 - Demo hazard segmentation should use static SAM3 artifacts generated once from images under `media/hazards/`. The mock UI should switch to those artifacts after a short delay when edited images are approved, not call SAM3 at runtime.
 - Demo mode has local WaveSpeed generated hazard edits under `media/hazards/`. After demo keyframes are extracted, `Approve keyframes` is a purple CTA that waits about 10 seconds to simulate generation before switching the review panel to edited images. The same remove and restore controls apply to edited images. After `Approve edits`, the phase 3 CTA should read `Segment hazards` and use the purple CTA style.
 - The artifact header should not show a `Reset cursor` control. That action slot is reserved for a live-looking `Export COCO / JSONL` button, enabled after edited hazards are approved.
+- The demo `Export COCO / JSONL` button now calls `POST /api/demo-export` after segmentation artifacts exist and downloads two local files: `{job_id}-coco.json` and `{job_id}-labels.jsonl`.
 
 ## Serverless constraints
 

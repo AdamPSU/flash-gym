@@ -5,14 +5,18 @@ import {
   buildDemoExtractResponse,
   buildDemoHazardFrames,
   buildDemoSegmentationFrames,
+  buildEditHazardsPayload,
   buildDemoRunMetadata,
   buildLoadingButtonState,
   buildPipelineRun,
   buildRunTitle,
+  buildSegmentHazardsPayload,
   buildVolumeVideoPath,
   countApprovedFrames,
   createSafeJobId,
   framesFromExtractResponse,
+  framesFromEditResponse,
+  framesFromSegmentationResponse,
   toggleFrameDeleted,
 } from "../lib/pipeline";
 
@@ -32,6 +36,47 @@ describe("pipeline helpers", () => {
       video_path: "/runpod-volume/jobs/runpod-venue/input/video.mov",
       max_keyframes: 5,
       prefer_gpu_decode: false,
+    });
+  });
+
+  it("builds the edit-hazards request payload from approved review frames", () => {
+    expect(
+      buildEditHazardsPayload("runpod-venue", [
+        { frameId: "kf_0001", path: "/runpod-volume/jobs/runpod-venue/keyframes/kf_0001.jpg", deleted: false },
+        { frameId: "kf_0002", path: "/runpod-volume/jobs/runpod-venue/keyframes/kf_0002.jpg", deleted: true },
+      ]),
+    ).toEqual({
+      job_id: "runpod-venue",
+      keyframe_manifest_path: "/runpod-volume/jobs/runpod-venue/keyframes_manifest.json",
+      approved_frame_ids: ["kf_0001"],
+      prompt: "Add one realistic floor safety hazard to the scene while preserving camera angle, lighting, and venue layout.",
+      max_images: 1,
+      seed: 7,
+      num_inference_steps: 4,
+      guidance_scale: 1,
+      max_dimension: 768,
+    });
+  });
+
+  it("builds the segment-hazards request payload from approved hazard edits", () => {
+    expect(
+      buildSegmentHazardsPayload("runpod-venue", [
+        {
+          frameId: "kf_0001",
+          path: "/runpod-volume/jobs/runpod-venue/edited/kf_0001_hazard.png",
+          deleted: false,
+          sourceFrameId: "kf_0001",
+        },
+      ]),
+    ).toEqual({
+      job_id: "runpod-venue",
+      edit_manifest_path: "/runpod-volume/jobs/runpod-venue/edit_manifest.json",
+      approved_frame_ids: ["kf_0001"],
+      concept_prompt: "object on the floor",
+      max_images: 1,
+      batch_size: 2,
+      score_threshold: 0.35,
+      mask_threshold: 0.5,
     });
   });
 
@@ -173,7 +218,7 @@ describe("pipeline helpers", () => {
     ]);
   });
 
-  it("models the current stage order without making future stages actionable", () => {
+  it("models the current real stage order", () => {
     expect(buildPipelineRun("runpod-venue")).toEqual([
       {
         id: "extract-keyframes",
@@ -184,14 +229,14 @@ describe("pipeline helpers", () => {
       {
         id: "hazard-editing",
         label: "image editing",
-        detail: "Qwen edit contract exists; Flash endpoint is not wired yet.",
-        state: "contract",
+        detail: "Runpod Flash hazard edits from approved keyframes.",
+        state: "waiting",
       },
       {
         id: "segmentation",
         label: "image segmentation",
-        detail: "SAM-3 demo artifacts use a broad object-on-the-floor prompt.",
-        state: "locked",
+        detail: "Runpod Flash SAM3 masks with a broad object-on-the-floor prompt.",
+        state: "waiting",
       },
     ]);
   });
@@ -239,6 +284,73 @@ describe("pipeline helpers", () => {
         deleted: false,
       },
       { frameId: "kf_0002", path: "/runpod-volume/jobs/demo/keyframes/kf_0002.jpg", deleted: false },
+    ]);
+  });
+
+  it("builds hazard review frames from a real edit response", () => {
+    expect(
+      framesFromEditResponse({
+        job_id: "demo",
+        status: "edited",
+        manifest_path: "/runpod-volume/jobs/demo/edit_manifest.json",
+        edited_dir: "/runpod-volume/jobs/demo/edited",
+        edited_count: 1,
+        images: [
+          {
+            frame_id: "kf_0001",
+            source_path: "/runpod-volume/jobs/demo/keyframes/kf_0001.jpg",
+            edited_path: "/runpod-volume/jobs/demo/edited/kf_0001_hazard.png",
+            preview_url: "data:image/png;base64,abc",
+            timestamp_ms: 5000,
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        frameId: "kf_0001",
+        path: "/runpod-volume/jobs/demo/edited/kf_0001_hazard.png",
+        previewUrl: "data:image/png;base64,abc",
+        timestampMs: 5000,
+        deleted: false,
+        sourceFrameId: "kf_0001",
+      },
+    ]);
+  });
+
+  it("builds segmentation review frames from a real SAM3 response", () => {
+    expect(
+      framesFromSegmentationResponse({
+        job_id: "demo",
+        status: "segmented",
+        manifest_path: "/runpod-volume/jobs/demo/segmentation_manifest.json",
+        masks_dir: "/runpod-volume/jobs/demo/masks",
+        segmented_count: 1,
+        instance_count: 1,
+        images: [
+          {
+            frame_id: "kf_0001",
+            edited_path: "/runpod-volume/jobs/demo/edited/kf_0001_hazard.png",
+            preview_url: "data:image/png;base64,mask",
+            timestamp_ms: 5000,
+            instances: [
+              {
+                instance_id: "kf_0001_mask_01",
+                mask_path: "/runpod-volume/jobs/demo/masks/kf_0001_mask_01.png",
+              },
+            ],
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        frameId: "kf_0001",
+        path: "/runpod-volume/jobs/demo/masks/kf_0001_mask_01.png",
+        previewUrl: "data:image/png;base64,mask",
+        timestampMs: 5000,
+        deleted: false,
+        sourceFrameId: "kf_0001",
+        prompt: "object on the floor",
+      },
     ]);
   });
 });

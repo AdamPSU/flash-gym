@@ -16,10 +16,14 @@ import {
   countApprovedFrames,
   createSafeJobId,
   ExtractKeyframesResponse,
+  EditHazardsResponse,
   framesFromExtractResponse,
+  framesFromEditResponse,
+  framesFromSegmentationResponse,
   PipelineStage,
   RequestState,
   ReviewFrame,
+  SegmentHazardsResponse,
   toggleFrameDeleted,
 } from "../lib/pipeline";
 
@@ -27,6 +31,16 @@ const initialJobId = "runpod-venue";
 const demoHazardGenerationDelayMs = 10_000;
 const demoSegmentationDelayMs = 5_000;
 type ReviewMode = "keyframes" | "hazards" | "segmentations";
+type ExportFile = {
+  name: string;
+  contentType: string;
+  content: string;
+};
+type DemoExportResponse = {
+  files?: ExportFile[];
+  files_download?: ExportFile[];
+  error?: string;
+};
 
 function createMockPreview(seed: number): string {
   const accent = ["#99edff", "#bfff00", "#ffc4dc"][seed % 3];
@@ -72,9 +86,11 @@ export default function PipelineConsole() {
   const [activeHazardIndex, setActiveHazardIndex] = useState(0);
   const [activeSegmentationIndex, setActiveSegmentationIndex] = useState(0);
   const [extractResponse, setExtractResponse] = useState<ExtractKeyframesResponse | null>(null);
+  const [segmentationResponse, setSegmentationResponse] = useState<SegmentHazardsResponse | null>(null);
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [hazardRequestState, setHazardRequestState] = useState<RequestState>("idle");
   const [segmentationRequestState, setSegmentationRequestState] = useState<RequestState>("idle");
+  const [exportRequestState, setExportRequestState] = useState<RequestState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [errorDetails, setErrorDetails] = useState("");
   const [demoMode, setDemoMode] = useState(false);
@@ -95,18 +111,20 @@ export default function PipelineConsole() {
         requestState,
         Boolean(extractResponse),
         approvedCount,
+        hazardRequestState,
         hazardFrames.length > 0,
         hazardsApproved,
         approvedHazardCount,
         segmentationRequestState,
         segmentationFrames.length,
       ),
-    [approvedCount, approvedHazardCount, extractResponse, hazardFrames.length, hazardsApproved, jobId, requestState, segmentationFrames.length, segmentationRequestState],
+    [approvedCount, approvedHazardCount, extractResponse, hazardFrames.length, hazardRequestState, hazardsApproved, jobId, requestState, segmentationFrames.length, segmentationRequestState],
   );
   const payload = buildExtractKeyframesPayload(jobId, maxKeyframes, preferGpuDecode);
   const extractButton = buildLoadingButtonState(requestState, "Extract keyframes", "Extracting keyframes");
   const approveKeyframesButton = buildLoadingButtonState(hazardRequestState, "Approve keyframes", "Generating hazards");
   const approveEditsButton = buildLoadingButtonState(segmentationRequestState, "Approve edits", "Running SAM3");
+  const exportButton = buildLoadingButtonState(exportRequestState, "Export COCO / JSONL", "Exporting COCO / JSONL");
   const runTitle = buildRunTitle(selectedFile);
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -120,9 +138,11 @@ export default function PipelineConsole() {
     setDemoMode(false);
     setHazardFrames([]);
     setSegmentationFrames([]);
+    setSegmentationResponse(null);
     setReviewMode("keyframes");
     setHazardsApproved(false);
     setSegmentationRequestState("idle");
+    setExportRequestState("idle");
   }
 
   async function handleExtract(event: FormEvent<HTMLFormElement>) {
@@ -138,12 +158,14 @@ export default function PipelineConsole() {
       setActiveFrameIndex(0);
       setHazardFrames([]);
       setSegmentationFrames([]);
+      setSegmentationResponse(null);
       setActiveHazardIndex(0);
       setActiveSegmentationIndex(0);
       setReviewMode("keyframes");
       setHazardsApproved(false);
       setHazardRequestState("idle");
       setSegmentationRequestState("idle");
+      setExportRequestState("idle");
       setRequestState("idle");
       return;
     }
@@ -169,12 +191,14 @@ export default function PipelineConsole() {
       setActiveFrameIndex(0);
       setHazardFrames([]);
       setSegmentationFrames([]);
+      setSegmentationResponse(null);
       setActiveHazardIndex(0);
       setActiveSegmentationIndex(0);
       setReviewMode("keyframes");
       setHazardsApproved(false);
       setHazardRequestState("idle");
       setSegmentationRequestState("idle");
+      setExportRequestState("idle");
       setRequestState("idle");
       setErrorDetails("");
     } catch (error) {
@@ -204,31 +228,74 @@ export default function PipelineConsole() {
     if (!activeFrame) {
       return;
     }
-    if (reviewMode !== "keyframes") {
-      const setFramesForMode = reviewMode === "segmentations" ? setSegmentationFrames : setHazardFrames;
-      setFramesForMode((currentFrames) => toggleFrameDeleted(currentFrames, activeFrame.frameId));
+
+    if (reviewMode === "segmentations") {
+      setSegmentationFrames((currentFrames) => toggleFrameDeleted(currentFrames, activeFrame.frameId));
+      return;
+    }
+
+    if (reviewMode === "hazards") {
+      setHazardFrames((currentFrames) => toggleFrameDeleted(currentFrames, activeFrame.frameId));
       setHazardsApproved(false);
       setSegmentationFrames([]);
+      setSegmentationResponse(null);
       return;
     }
     setFrames((currentFrames) => toggleFrameDeleted(currentFrames, activeFrame.frameId));
     setHazardFrames([]);
     setSegmentationFrames([]);
+    setSegmentationResponse(null);
     setReviewMode("keyframes");
     setHazardsApproved(false);
   }
 
   async function generateDemoHazards() {
     setHazardRequestState("submitting");
-    await new Promise((resolve) => setTimeout(resolve, demoHazardGenerationDelayMs));
-    const editedFrames = buildDemoHazardFrames(jobId, frames);
-    setHazardFrames(editedFrames);
-    setSegmentationFrames([]);
-    setActiveHazardIndex(0);
-    setActiveSegmentationIndex(0);
-    setReviewMode("hazards");
-    setHazardsApproved(false);
-    setHazardRequestState("idle");
+    setErrorMessage("");
+    setErrorDetails("");
+
+    if (demoMode) {
+      await new Promise((resolve) => setTimeout(resolve, demoHazardGenerationDelayMs));
+      const editedFrames = buildDemoHazardFrames(jobId, frames);
+      setHazardFrames(editedFrames);
+      setSegmentationFrames([]);
+      setSegmentationResponse(null);
+      setActiveHazardIndex(0);
+      setActiveSegmentationIndex(0);
+      setReviewMode("hazards");
+      setHazardsApproved(false);
+      setHazardRequestState("idle");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/hazards/edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, approvedFrameIds: approvedFrameIds(frames) }),
+      });
+      const body = (await response.json()) as EditHazardsResponse;
+      if (!response.ok) {
+        setHazardRequestState("error");
+        setErrorMessage(body.error || "edit-hazards request failed");
+        setErrorDetails(formatErrorDetails(body));
+        return;
+      }
+
+      setHazardFrames(framesFromEditResponse(body));
+      setSegmentationFrames([]);
+      setSegmentationResponse(null);
+      setActiveHazardIndex(0);
+      setActiveSegmentationIndex(0);
+      setReviewMode("hazards");
+      setHazardsApproved(false);
+      setHazardRequestState("idle");
+      setErrorDetails("");
+    } catch (error) {
+      setHazardRequestState("error");
+      setErrorMessage(error instanceof Error ? error.message : "edit-hazards request failed");
+      setErrorDetails("");
+    }
   }
 
   async function approveHazards() {
@@ -237,11 +304,79 @@ export default function PipelineConsole() {
     }
     setHazardsApproved(true);
     setSegmentationRequestState("submitting");
-    await new Promise((resolve) => setTimeout(resolve, demoSegmentationDelayMs));
-    setSegmentationFrames(buildDemoSegmentationFrames(jobId, hazardFrames));
-    setActiveSegmentationIndex(0);
-    setReviewMode("segmentations");
-    setSegmentationRequestState("idle");
+    setErrorMessage("");
+    setErrorDetails("");
+
+    if (demoMode) {
+      await new Promise((resolve) => setTimeout(resolve, demoSegmentationDelayMs));
+      setSegmentationFrames(buildDemoSegmentationFrames(jobId, hazardFrames));
+      setActiveSegmentationIndex(0);
+      setReviewMode("segmentations");
+      setSegmentationRequestState("idle");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/segmentations/segment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, frames: approvedFramesForSegmentation(hazardFrames) }),
+      });
+      const body = (await response.json()) as SegmentHazardsResponse;
+      if (!response.ok) {
+        setHazardsApproved(false);
+        setSegmentationRequestState("error");
+        setErrorMessage(body.error || "segment-hazards request failed");
+        setErrorDetails(formatErrorDetails(body));
+        return;
+      }
+
+      setSegmentationFrames(framesFromSegmentationResponse(body));
+      setSegmentationResponse(body);
+      setActiveSegmentationIndex(0);
+      setReviewMode("segmentations");
+      setSegmentationRequestState("idle");
+      setErrorDetails("");
+    } catch (error) {
+      setHazardsApproved(false);
+      setSegmentationRequestState("error");
+      setErrorMessage(error instanceof Error ? error.message : "segment-hazards request failed");
+      setErrorDetails("");
+    }
+  }
+
+  async function exportDemoDataset() {
+    if (segmentationFrames.length === 0 || exportRequestState === "submitting") {
+      return;
+    }
+
+    setExportRequestState("submitting");
+    setErrorMessage("");
+    setErrorDetails("");
+
+    try {
+      const response = await fetch(segmentationResponse ? "/api/dataset/export" : "/api/demo-export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          segmentationResponse ? { jobId, segmentation: segmentationResponse } : { jobId, frames: segmentationFrames },
+        ),
+      });
+      const body = (await response.json()) as DemoExportResponse;
+
+      const exportFiles = body.files_download ?? body.files ?? [];
+      if (!response.ok || !exportFiles.length) {
+        setErrorMessage(body.error || "demo export failed");
+        setExportRequestState("error");
+        return;
+      }
+
+      exportFiles.forEach(downloadExportFile);
+      setExportRequestState("idle");
+    } catch (error) {
+      setExportRequestState("error");
+      setErrorMessage(error instanceof Error ? error.message : "demo export failed");
+    }
   }
 
   function toggleDemoMode() {
@@ -251,10 +386,12 @@ export default function PipelineConsole() {
       setExtractResponse(null);
       setHazardFrames([]);
       setSegmentationFrames([]);
+      setSegmentationResponse(null);
       setReviewMode("keyframes");
       setHazardsApproved(false);
       setHazardRequestState("idle");
       setSegmentationRequestState("idle");
+      setExportRequestState("idle");
       setErrorMessage("");
       setErrorDetails("");
       return;
@@ -269,6 +406,7 @@ export default function PipelineConsole() {
     setFrames([]);
     setHazardFrames([]);
     setSegmentationFrames([]);
+    setSegmentationResponse(null);
     setActiveFrameIndex(0);
     setActiveHazardIndex(0);
     setActiveSegmentationIndex(0);
@@ -277,6 +415,7 @@ export default function PipelineConsole() {
     setHazardsApproved(false);
     setHazardRequestState("idle");
     setSegmentationRequestState("idle");
+    setExportRequestState("idle");
     setRequestState("idle");
     setErrorMessage("");
     setErrorDetails("");
@@ -387,7 +526,7 @@ export default function PipelineConsole() {
               <h3>{activeFrame?.frameId ?? "no frame selected"}</h3>
             </div>
             <div className="artifactActions">
-              {demoMode && extractResponse && reviewMode === "keyframes" ? (
+              {extractResponse && reviewMode === "keyframes" ? (
                 <button
                   className="approvalButton"
                   type="button"
@@ -413,8 +552,15 @@ export default function PipelineConsole() {
                   <span className="buttonText">{approveEditsButton.label}</span>
                 </button>
               ) : null}
-              <button className="ghostButton" type="button" disabled={segmentationFrames.length === 0}>
-                Export COCO / JSONL
+              <button
+                className="ghostButton"
+                type="button"
+                onClick={exportDemoDataset}
+                disabled={segmentationFrames.length === 0 || exportButton.busy}
+                aria-busy={exportButton.busy}
+              >
+                {exportButton.busy ? <span className="buttonSpinner" aria-hidden="true" /> : null}
+                <span className="buttonText">{exportButton.label}</span>
               </button>
             </div>
           </div>
@@ -537,7 +683,35 @@ export default function PipelineConsole() {
   );
 }
 
-function formatErrorDetails(response: ExtractKeyframesResponse): string {
+function downloadExportFile(file: ExportFile) {
+  const blob = new Blob([file.content], { type: file.contentType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = file.name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function approvedFrameIds(frames: ReviewFrame[]): string[] {
+  return frames.filter((frame) => !frame.deleted).map((frame) => frame.sourceFrameId ?? frame.frameId);
+}
+
+function approvedFramesForSegmentation(frames: ReviewFrame[]) {
+  return frames
+    .filter((frame) => !frame.deleted)
+    .map((frame) => ({
+      frameId: frame.sourceFrameId ?? frame.frameId,
+      path: frame.path,
+      previewUrl: frame.previewUrl,
+      timestampMs: frame.timestampMs,
+      sourceFrameId: frame.sourceFrameId ?? frame.frameId,
+    }));
+}
+
+function formatErrorDetails(response: ExtractKeyframesResponse | EditHazardsResponse | SegmentHazardsResponse): string {
   if (response.details === undefined) {
     return "";
   }
@@ -554,6 +728,7 @@ function updateStageStates(
   requestState: RequestState,
   hasExtractResponse: boolean,
   approvedCount: number,
+  hazardRequestState: RequestState,
   hasHazardFrames: boolean,
   hazardsApproved: boolean,
   approvedHazardCount: number,
@@ -572,6 +747,12 @@ function updateStageStates(
     }
 
     if (stage.id === "hazard-editing") {
+      if (hazardRequestState === "submitting") {
+        return { ...stage, state: "running" };
+      }
+      if (hazardRequestState === "error") {
+        return { ...stage, state: "error" };
+      }
       if (hazardsApproved || hasHazardFrames) {
         return { ...stage, state: "done" };
       }
@@ -583,6 +764,9 @@ function updateStageStates(
     if (stage.id === "segmentation") {
       if (segmentationRequestState === "submitting") {
         return { ...stage, state: "running" };
+      }
+      if (segmentationRequestState === "error") {
+        return { ...stage, state: "error" };
       }
       if (segmentationCount > 0) {
         return { ...stage, state: "done" };

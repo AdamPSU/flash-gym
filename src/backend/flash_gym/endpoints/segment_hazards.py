@@ -41,6 +41,7 @@ phase3_volume = NetworkVolume(
 async def segment_hazards(input_data: dict) -> dict:
     from contextlib import contextmanager
     from pathlib import Path
+    import base64
     import json
     import threading
     import time
@@ -386,6 +387,11 @@ async def segment_hazards(input_data: dict) -> dict:
                     "height": height,
                     "instances": instances,
                 }
+                if instances:
+                    first_mask_path = Path(instances[0]["mask_path"])
+                    image_manifest_record["preview_url"] = (
+                        f"data:image/png;base64,{base64.b64encode(first_mask_path.read_bytes()).decode('ascii')}"
+                    )
                 if "source_path" in source_record:
                     image_manifest_record["source_path"] = source_record["source_path"]
                 if "timestamp_ms" in source_record:
@@ -436,6 +442,7 @@ async def segment_hazards(input_data: dict) -> dict:
         "model_id": request.model_id,
         "segmented_count": manifest["segmented_count"],
         "instance_count": manifest["instance_count"],
+        "images": segmentation_images,
         "progress_path": progress_path,
     }
 
@@ -459,6 +466,8 @@ async def segment_hazards(input_data: dict) -> dict:
     env=build_sam3_endpoint_env(hf_home="/tmp/flash-gym/.cache/huggingface"),
 )
 async def segment_hazards_smoke(input_data: dict) -> dict:
+    import base64
+    import json
     from pathlib import Path
     from urllib.request import Request, urlopen
     from urllib.parse import urlparse
@@ -489,10 +498,11 @@ async def segment_hazards_smoke(input_data: dict) -> dict:
     started_at = time.time()
     job_id = str(input_data.get("job_id") or "sam3-smoke")
     validate_safe_slug(job_id, "job_id")
+    mode = str(input_data.get("mode") or "smoke_test")
     concept_prompt = str(input_data.get("concept_prompt") or "")
     if not concept_prompt.strip():
         raise ValueError("concept_prompt cannot be empty")
-    image_urls = validate_public_image_urls(list(input_data.get("image_urls") or ()))
+    image_urls = [] if mode == "inline" else validate_public_image_urls(list(input_data.get("image_urls") or ()))
     score_threshold = float(input_data.get("score_threshold", 0.35))
     mask_threshold = float(input_data.get("mask_threshold", 0.5))
     validate_threshold_value(score_threshold, "score_threshold")
@@ -508,19 +518,44 @@ async def segment_hazards_smoke(input_data: dict) -> dict:
             old_file.unlink()
 
     image_paths = []
-    for index, image_url in enumerate(image_urls, start=1):
-        suffix = Path(image_url.split("?", 1)[0]).suffix.lower()
-        if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
-            suffix = ".jpg"
-        image_path = edited_dir / f"kf_{index:04d}_hazard{suffix}"
-        request = Request(image_url, headers={"User-Agent": "flash-gym-sam3-smoke-test"})
-        with urlopen(request, timeout=30) as response:
-            image_path.write_bytes(response.read(15 * 1024 * 1024))
-        image_paths.append(image_path)
+    frame_ids = []
+    timestamps_ms = []
+    if mode == "inline":
+        image_data_urls = list(input_data.get("image_data_urls") or ())
+        raw_frame_ids = list(input_data.get("frame_ids") or ())
+        raw_timestamps = list(input_data.get("timestamps_ms") or ())
+        if not image_data_urls:
+            raise ValueError("image_data_urls cannot be empty")
+        if len(image_data_urls) > 8:
+            raise ValueError("image_data_urls cannot contain more than 8 items")
+        for index, image_data_url in enumerate(image_data_urls, start=1):
+            frame_id = str(raw_frame_ids[index - 1] if index - 1 < len(raw_frame_ids) else f"kf_{index:04d}")
+            validate_safe_slug(frame_id, "frame_id")
+            if not isinstance(image_data_url, str) or not image_data_url.startswith("data:image/"):
+                raise ValueError("image_data_urls must contain image data URLs")
+            header, encoded_image = image_data_url.split(",", 1)
+            suffix = ".png" if "png" in header else ".jpg"
+            image_path = edited_dir / f"{frame_id}_hazard{suffix}"
+            image_path.write_bytes(base64.b64decode(encoded_image, validate=True))
+            image_paths.append(image_path)
+            frame_ids.append(frame_id)
+            timestamp = raw_timestamps[index - 1] if index - 1 < len(raw_timestamps) else None
+            timestamps_ms.append(timestamp if isinstance(timestamp, int | float) else None)
+    else:
+        for index, image_url in enumerate(image_urls, start=1):
+            suffix = Path(image_url.split("?", 1)[0]).suffix.lower()
+            if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+                suffix = ".jpg"
+            image_path = edited_dir / f"kf_{index:04d}_hazard{suffix}"
+            request = Request(image_url, headers={"User-Agent": "flash-gym-sam3-smoke-test"})
+            with urlopen(request, timeout=30) as response:
+                image_path.write_bytes(response.read(15 * 1024 * 1024))
+            image_paths.append(image_path)
+            frame_ids.append(f"kf_{index:04d}")
+            timestamps_ms.append(None)
 
     import subprocess
     import sys
-    import json
 
     numpy_version = str(input_data.get("numpy_version") or "2.2.6")
     print(f"flash-gym-smoke repairing numpy=={numpy_version}", flush=True)
@@ -554,7 +589,10 @@ async def segment_hazards_smoke(input_data: dict) -> dict:
                 "score_threshold": score_threshold,
                 "mask_threshold": mask_threshold,
                 "image_paths": [str(path) for path in image_paths],
+                "frame_ids": frame_ids,
+                "timestamps_ms": timestamps_ms,
                 "masks_dir": str(masks_dir),
+                "mode": mode,
                 "started_at": started_at,
             }
         ),
@@ -563,6 +601,7 @@ async def segment_hazards_smoke(input_data: dict) -> dict:
     script_path.write_text(
         r'''
 import json
+import base64
 import time
 from pathlib import Path
 
@@ -616,11 +655,10 @@ def main(request_path, result_path):
     masks_dir = Path(request["masks_dir"])
     output_images = []
     instance_count = 0
-    for image_index, (image_path, image_size, result) in enumerate(
-        zip(request["image_paths"], image_sizes, results),
+    for image_index, (image_path, frame_id, timestamp_ms, image_size, result) in enumerate(
+        zip(request["image_paths"], request["frame_ids"], request["timestamps_ms"], image_sizes, results),
         start=1,
     ):
-        frame_id = f"kf_{image_index:04d}"
         width, height = image_size
         instances = []
         masks = result.get("masks", [])
@@ -643,24 +681,27 @@ def main(request_path, result_path):
                 }
             )
         instance_count += len(instances)
-        output_images.append(
-            {
-                "frame_id": frame_id,
-                "edited_path": image_path,
-                "width": width,
-                "height": height,
-                "instances": instances,
-            }
-        )
+        image_record = {
+            "frame_id": frame_id,
+            "edited_path": image_path,
+            "width": width,
+            "height": height,
+            "instances": instances,
+            "timestamp_ms": timestamp_ms,
+        }
+        if instances:
+            first_mask_path = Path(instances[0]["mask_path"])
+            image_record["preview_url"] = "data:image/png;base64," + base64.b64encode(first_mask_path.read_bytes()).decode("ascii")
+        output_images.append(image_record)
     Path(result_path).write_text(
         json.dumps(
             {
                 "job_id": request["job_id"],
                 "status": "segmented" if instance_count else "no-instances-found",
-                "mode": "smoke_test",
+                "mode": request["mode"],
                 "model_id": request["model_id"],
                 "concept_prompt": request["concept_prompt"],
-                "image_count": len(output_images),
+                "segmented_count": len(output_images),
                 "instance_count": instance_count,
                 "images": output_images,
                 "elapsed_seconds": round(time.time() - request["started_at"], 3),
