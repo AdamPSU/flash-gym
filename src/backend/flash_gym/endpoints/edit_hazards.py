@@ -19,17 +19,12 @@ phase2_volume = NetworkVolume(
     template=PodTemplate(containerDiskInGb=100),
     dependencies=[
         "accelerate",
-        "einops==0.8.1",
-        "git+https://github.com/Peyton-Chen/diffusers.git@step1xedit_v1p2",
+        "git+https://github.com/huggingface/diffusers.git",
         "huggingface_hub",
-        "liger_kernel==0.5.4",
-        "megfile",
-        "peft==0.17.0",
         "pillow",
-        "qwen_vl_utils==0.0.10",
         "safetensors",
         "sentencepiece",
-        "transformers==4.55.0",
+        "transformers",
     ],
     env={
         "HF_HOME": "/runpod-volume/.cache/huggingface",
@@ -45,8 +40,8 @@ async def edit_hazards(input_data: dict) -> dict:
     import threading
     import time
 
-    DEFAULT_MODEL_ID = "stepfun-ai/Step1X-Edit-v1p2"
-    DEFAULT_MODEL_CACHE_DIR = "/runpod-volume/models/step1x-edit-v1p2"
+    DEFAULT_MODEL_ID = "black-forest-labs/FLUX.2-klein-4B"
+    DEFAULT_MODEL_CACHE_DIR = "/runpod-volume/models/flux2-klein-4b"
     VOLUME_ROOT = "/runpod-volume"
     FRAME_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
     JOB_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
@@ -213,24 +208,24 @@ async def edit_hazards(input_data: dict) -> dict:
         resized_size = (max(1, round(width * scale)), max(1, round(height * scale)))
         return image.resize(resized_size, Image.Resampling.LANCZOS)
 
-    def ensure_step1x_pipeline(
+    def ensure_flux2_klein_pipeline(
         model_id: str,
         model_cache_dir: str,
         progress_path: str | None,
         heartbeat_seconds: int,
     ):
         import torch
-        from diffusers import Step1XEditPipelineV1P2
+        from diffusers.pipelines.flux2.pipeline_flux2_klein import Flux2KleinPipeline
         from huggingface_hub import snapshot_download
 
-        global _step1x_edit_pipeline
-        global _step1x_edit_model_id
-        global _step1x_edit_model_cache_dir
+        global _flux2_klein_pipeline
+        global _flux2_klein_model_id
+        global _flux2_klein_model_cache_dir
 
         if (
-            "_step1x_edit_pipeline" in globals()
-            and _step1x_edit_model_id == model_id
-            and _step1x_edit_model_cache_dir == model_cache_dir
+            "_flux2_klein_pipeline" in globals()
+            and _flux2_klein_model_id == model_id
+            and _flux2_klein_model_cache_dir == model_cache_dir
         ):
             emit_progress(
                 progress_path,
@@ -240,7 +235,7 @@ async def edit_hazards(input_data: dict) -> dict:
                 model_id=model_id,
                 model_cache_dir=model_cache_dir,
             )
-            return _step1x_edit_pipeline
+            return _flux2_klein_pipeline
 
         Path(model_cache_dir).mkdir(parents=True, exist_ok=True)
         with observed_phase(
@@ -258,7 +253,7 @@ async def edit_hazards(input_data: dict) -> dict:
             model_id=model_id,
             snapshot_path=snapshot_path,
         ):
-            pipeline = Step1XEditPipelineV1P2.from_pretrained(
+            pipeline = Flux2KleinPipeline.from_pretrained(
                 snapshot_path,
                 torch_dtype=torch.bfloat16,
                 local_files_only=True,
@@ -266,9 +261,9 @@ async def edit_hazards(input_data: dict) -> dict:
         with observed_phase(progress_path, "pipeline_cuda", heartbeat_seconds, model_id=model_id):
             pipeline.to("cuda")
         pipeline.set_progress_bar_config(disable=True)
-        _step1x_edit_pipeline = pipeline
-        _step1x_edit_model_id = model_id
-        _step1x_edit_model_cache_dir = model_cache_dir
+        _flux2_klein_pipeline = pipeline
+        _flux2_klein_model_id = model_id
+        _flux2_klein_model_cache_dir = model_cache_dir
         return pipeline
 
     heartbeat_seconds = max(5, int(input_data.get("heartbeat_seconds", 15)))
@@ -300,7 +295,7 @@ async def edit_hazards(input_data: dict) -> dict:
             model_id=model_id,
             model_cache_dir=model_cache_dir,
         )
-        ensure_step1x_pipeline(model_id, model_cache_dir, progress_path, heartbeat_seconds)
+        ensure_flux2_klein_pipeline(model_id, model_cache_dir, progress_path, heartbeat_seconds)
         emit_progress(progress_path, "warmup_ready", "completed", endpoint_started_at, model_id=model_id)
         return {
             "status": "ready",
@@ -323,7 +318,7 @@ async def edit_hazards(input_data: dict) -> dict:
     prompt = str(input_data.get("prompt") or "")
     max_images = int(input_data.get("max_images", 30))
     seed_base = int(input_data.get("seed", 0))
-    num_inference_steps = int(input_data.get("num_inference_steps", 28))
+    num_inference_steps = int(input_data.get("num_inference_steps", 4))
     true_cfg_scale = float(input_data.get("true_cfg_scale", 4.0))
     guidance_scale = float(input_data.get("guidance_scale", 1.0))
     negative_prompt = str(input_data.get("negative_prompt", " "))
@@ -369,7 +364,7 @@ async def edit_hazards(input_data: dict) -> dict:
     for previous_image in edited_dir.glob("*_hazard.png"):
         previous_image.unlink()
 
-    pipeline = ensure_step1x_pipeline(model_id, model_cache_dir, progress_path, heartbeat_seconds)
+    pipeline = ensure_flux2_klein_pipeline(model_id, model_cache_dir, progress_path, heartbeat_seconds)
 
     import torch
     from PIL import Image
@@ -387,10 +382,10 @@ async def edit_hazards(input_data: dict) -> dict:
             "image": source_image,
             "prompt": prompt,
             "generator": generator,
-            "true_cfg_scale": true_cfg_scale,
+            "height": source_image.height,
+            "width": source_image.width,
+            "guidance_scale": guidance_scale,
             "num_inference_steps": num_inference_steps,
-            "enable_thinking_mode": bool(input_data.get("enable_thinking_mode", False)),
-            "enable_reflection_mode": bool(input_data.get("enable_reflection_mode", False)),
         }
         image_started_at = time.time()
         with observed_phase(

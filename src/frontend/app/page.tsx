@@ -62,6 +62,7 @@ export default function PipelineConsole() {
   const [extractResponse, setExtractResponse] = useState<ExtractKeyframesResponse | null>(null);
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
+  const [errorDetails, setErrorDetails] = useState("");
 
   const videoPath = buildVolumeVideoPath(jobId);
   const manifestPath = buildManifestPath(jobId);
@@ -89,6 +90,7 @@ export default function PipelineConsole() {
     event.preventDefault();
     setRequestState("submitting");
     setErrorMessage("");
+    setErrorDetails("");
 
     try {
       const response = await fetch("/api/keyframes/extract", {
@@ -99,14 +101,19 @@ export default function PipelineConsole() {
       const body = (await response.json()) as ExtractKeyframesResponse;
 
       if (!response.ok) {
-        throw new Error(body.error || "extract-keyframes request failed");
+        setRequestState("error");
+        setErrorMessage(body.error || "extract-keyframes request failed");
+        setErrorDetails(formatErrorDetails(body));
+        return;
       }
 
       setExtractResponse(body);
       setRequestState("idle");
+      setErrorDetails("");
     } catch (error) {
       setRequestState("error");
       setErrorMessage(error instanceof Error ? error.message : "extract-keyframes request failed");
+      setErrorDetails("");
     }
   }
 
@@ -135,8 +142,11 @@ export default function PipelineConsole() {
       <aside className="controlPane" aria-label="Pipeline controls">
         <div className="brandBlock">
           <p className="eyebrow">Runpod Flash dataset pipeline</p>
-          <h1>flash_gym</h1>
-          <p className="lede">Extract keyframes from venue video, review candidates, then hand approved artifacts to later hazard stages.</p>
+          <h1>flash gym</h1>
+          <p className="lede">
+            Turn a venue walkthrough into review-ready training frames. One clip in, clean data out. Built for fast passes, sharp cuts,
+            and no dashboard theater.
+          </p>
         </div>
 
         <form className="jobForm" onSubmit={handleExtract} aria-busy={extractButton.busy}>
@@ -195,6 +205,7 @@ export default function PipelineConsole() {
             <span className="buttonText">{extractButton.label}</span>
           </button>
           {errorMessage ? <p className="errorText">{errorMessage}</p> : null}
+          {errorDetails ? <pre className="errorDetails">{errorDetails}</pre> : null}
         </form>
 
       </aside>
@@ -319,6 +330,18 @@ export default function PipelineConsole() {
       </section>
     </main>
   );
+}
+
+function formatErrorDetails(response: ExtractKeyframesResponse): string {
+  if (response.details === undefined) {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(response.details, null, 2);
+  } catch {
+    return String(response.details);
+  }
 }
 
 function updateStageStates(

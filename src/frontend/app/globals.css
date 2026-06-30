@@ -206,9 +206,11 @@ input:focus-visible {
 
 .primaryButton {
   margin-top: auto;
+  min-height: 58px;
   border: 1px solid transparent;
   background: var(--purple);
   color: white;
+  font-size: 16px;
 }
 
 .primaryButton[data-loading="true"] {
@@ -262,6 +264,21 @@ input:focus-visible {
   color: var(--danger);
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+.errorDetails {
+  max-height: 140px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid rgba(255, 90, 122, 0.34);
+  border-radius: var(--radius);
+  background: rgba(255, 90, 122, 0.08);
+  color: #ffd5de;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 10px;
+  white-space: pre-wrap;
 }
 
 .workPane {
@@ -464,12 +481,12 @@ input:focus-visible {
 .frameRemoveButton {
   top: 14px;
   right: 14px;
-  width: 38px;
-  height: 38px;
+  width: 24px;
+  height: 24px;
   border-color: rgba(255, 90, 122, 0.48);
   background: rgba(12, 12, 16, 0.72);
   color: var(--pink);
-  font-size: 26px;
+  font-size: 14px;
   line-height: 1;
 }
 

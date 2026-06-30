@@ -9,6 +9,7 @@ type ExtractRequestBody = {
 };
 
 type RunpodResponse = {
+  error?: unknown;
   status?: unknown;
   output?: unknown;
 };
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ input: payload }),
+    body: JSON.stringify({ input: { input_data: payload } }),
   });
 
   const responseBody = (await endpointResponse.json()) as RunpodResponse;
@@ -56,6 +57,13 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "extract-keyframes endpoint request failed", details: responseBody },
       { status: endpointResponse.status },
+    );
+  }
+
+  if (responseBody.status === "FAILED" || outputFailed(responseBody.output)) {
+    return NextResponse.json(
+      { error: runpodErrorMessage(responseBody), details: responseBody },
+      { status: 502 },
     );
   }
 
@@ -76,4 +84,20 @@ function buildRunpodRunsyncUrl(endpointUrl: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function outputFailed(output: unknown): boolean {
+  return isRecord(output) && output.success === false;
+}
+
+function runpodErrorMessage(responseBody: RunpodResponse): string {
+  if (typeof responseBody.error === "string" && responseBody.error) {
+    return responseBody.error;
+  }
+
+  if (isRecord(responseBody.output) && typeof responseBody.output.error === "string" && responseBody.output.error) {
+    return responseBody.output.error;
+  }
+
+  return "extract-keyframes Runpod job failed";
 }

@@ -5,6 +5,7 @@ from pathlib import Path
 import os
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 
 DEFAULT_MODEL_ID = "facebook/sam3"
@@ -12,6 +13,7 @@ DEFAULT_MODEL_CACHE_DIR = "/runpod-volume/models/sam3"
 DEFAULT_VOLUME_ROOT = "/runpod-volume"
 DEFAULT_HF_HOME = "/runpod-volume/.cache/huggingface"
 DEFAULT_HF_HUB_CACHE = "/runpod-volume/.cache/huggingface/hub"
+MAX_SMOKE_IMAGE_URLS = 8
 FRAME_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 JOB_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
@@ -68,6 +70,52 @@ def build_sam3_endpoint_env(hf_token: str | None = None) -> dict[str, str]:
     if token:
         env["HF_TOKEN"] = token
     return env
+
+
+def validate_smoke_image_urls(image_urls: list[str]) -> tuple[str, ...]:
+    if not image_urls:
+        raise ValueError("image_urls cannot be empty")
+    if len(image_urls) > MAX_SMOKE_IMAGE_URLS:
+        raise ValueError(f"image_urls cannot contain more than {MAX_SMOKE_IMAGE_URLS} items")
+
+    validated = []
+    for image_url in image_urls:
+        parsed = urlparse(image_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("image_urls must be absolute http or https URLs")
+        validated.append(image_url)
+    return tuple(validated)
+
+
+def build_sam3_smoke_edit_manifest(job_id: str, image_paths: list[str]) -> dict[str, Any]:
+    validate_job_id(job_id)
+    if not image_paths:
+        raise ValueError("image_paths cannot be empty")
+
+    images = []
+    for index, image_path in enumerate(image_paths, start=1):
+        validate_volume_path(image_path)
+        frame_id = f"kf_{index:04d}"
+        images.append(
+            {
+                "frame_id": frame_id,
+                "source_path": image_path,
+                "edited_path": image_path,
+                "seed": 0,
+            }
+        )
+
+    return {
+        "schema_version": 1,
+        "stage": "hazard-edit",
+        "job_id": job_id,
+        "model_id": "smoke-test-real-images",
+        "prompt": "Real public image fixture for SAM3 smoke testing.",
+        "source_manifest_path": "smoke-test",
+        "status": "smoke-test-fixture",
+        "edited_count": len(images),
+        "images": images,
+    }
 
 
 def build_sam3_segmentation_paths(

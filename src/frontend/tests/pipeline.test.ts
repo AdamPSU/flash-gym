@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildExtractKeyframesPayload,
+  buildDemoRunMetadata,
   buildLoadingButtonState,
   buildPipelineRun,
   buildRunTitle,
@@ -46,6 +47,15 @@ describe("pipeline helpers", () => {
     expect(buildRunTitle("runpod-venue.mov")).toBe("runpod-venue.mov");
   });
 
+  it("builds demo run metadata for presentation mode", () => {
+    expect(buildDemoRunMetadata()).toEqual({
+      fileName: "runpod-venue.mov",
+      jobId: "runpod-venue",
+      maxKeyframes: 30,
+      preferGpuDecode: true,
+    });
+  });
+
   it("models the current stage order without making future stages actionable", () => {
     expect(buildPipelineRun("runpod-venue")).toEqual([
       {
@@ -63,7 +73,7 @@ describe("pipeline helpers", () => {
       {
         id: "segmentation",
         label: "image segmentation",
-        detail: "Pending SAM-3 contract.",
+        detail: "SAM-3 contract exists; segment-hazards Flash endpoint is not wired here yet.",
         state: "locked",
       },
     ]);

@@ -20,10 +20,19 @@ class HazardEditEndpointTests(unittest.TestCase):
 
         self.assertNotIn("from flash_gym.", source)
 
-    def test_step1x_runtime_dependencies_are_declared(self):
+    def test_flux2_runtime_dependencies_are_declared(self):
         dependencies = edit_hazards.__remote_config__["dependencies"]
 
-        self.assertIn("megfile", dependencies)
+        self.assertIn("git+https://github.com/huggingface/diffusers.git", dependencies)
+        self.assertIn("transformers", dependencies)
+
+    def test_endpoint_body_uses_flux2_klein_pipeline(self):
+        source = inspect.getsource(edit_hazards)
+
+        self.assertIn("from diffusers.pipelines.flux2.pipeline_flux2_klein import Flux2KleinPipeline", source)
+        self.assertIn("Flux2KleinPipeline", source)
+        self.assertIn("black-forest-labs/FLUX.2-klein-4B", source)
+        self.assertNotIn("Step1XEditPipelineV1P2", source)
 
 
 if __name__ == "__main__":

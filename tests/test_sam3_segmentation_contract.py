@@ -10,9 +10,11 @@ sys.path.insert(0, str(BACKEND_SRC))
 from flash_gym.sam3_segmentation_contract import (  # noqa: E402
     Sam3SegmentationRequest,
     build_sam3_endpoint_env,
+    build_sam3_smoke_edit_manifest,
     build_sam3_segmentation_manifest,
     build_sam3_segmentation_paths,
     select_approved_edited_images,
+    validate_smoke_image_urls,
 )
 
 
@@ -24,6 +26,44 @@ class Sam3SegmentationContractTests(unittest.TestCase):
 
         self.assertEqual(env["HF_TOKEN"], "fake-token-for-test")
         self.assertEqual(env["HF_HOME"], "/runpod-volume/.cache/huggingface")
+
+    def test_validate_smoke_image_urls_allows_only_small_http_batches(self):
+        urls = validate_smoke_image_urls(
+            [
+                "https://images.cocodataset.org/val2017/000000039769.jpg",
+                "http://images.cocodataset.org/val2017/000000077595.jpg",
+            ]
+        )
+
+        self.assertEqual(len(urls), 2)
+
+        with self.assertRaises(ValueError):
+            validate_smoke_image_urls(["file:///tmp/image.jpg"])
+
+        with self.assertRaises(ValueError):
+            validate_smoke_image_urls([])
+
+        with self.assertRaises(ValueError):
+            validate_smoke_image_urls(["https://example.com/image.jpg"] * 9)
+
+    def test_build_smoke_edit_manifest_matches_phase_2_shape(self):
+        manifest = build_sam3_smoke_edit_manifest(
+            job_id="demo-job",
+            image_paths=[
+                "/runpod-volume/jobs/demo-job/edited/kf_0001_hazard.jpg",
+                "/runpod-volume/jobs/demo-job/edited/kf_0002_hazard.jpg",
+            ],
+        )
+
+        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["stage"], "hazard-edit")
+        self.assertEqual(manifest["status"], "smoke-test-fixture")
+        self.assertEqual(manifest["edited_count"], 2)
+        self.assertEqual(manifest["images"][0]["frame_id"], "kf_0001")
+        self.assertEqual(
+            manifest["images"][0]["edited_path"],
+            "/runpod-volume/jobs/demo-job/edited/kf_0001_hazard.jpg",
+        )
 
     def test_build_paths_uses_expected_volume_layout(self):
         paths = build_sam3_segmentation_paths("demo-job")

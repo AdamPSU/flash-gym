@@ -6,8 +6,8 @@ import re
 from typing import Any
 
 
-DEFAULT_MODEL_ID = "stepfun-ai/Step1X-Edit-v1p2"
-DEFAULT_MODEL_CACHE_DIR = "/runpod-volume/models/step1x-edit-v1p2"
+DEFAULT_MODEL_ID = "black-forest-labs/FLUX.2-klein-4B"
+DEFAULT_MODEL_CACHE_DIR = "/runpod-volume/models/flux2-klein-4b"
 DEFAULT_VOLUME_ROOT = "/runpod-volume"
 FRAME_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 JOB_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
@@ -31,7 +31,7 @@ class HazardEditRequest:
     prompt: str
     max_images: int = 30
     seed: int = 0
-    num_inference_steps: int = 28
+    num_inference_steps: int = 4
     true_cfg_scale: float = 4.0
     guidance_scale: float = 1.0
     negative_prompt: str = " "

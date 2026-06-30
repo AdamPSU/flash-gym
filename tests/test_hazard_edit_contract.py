@@ -34,7 +34,7 @@ class HazardEditContractTests(unittest.TestCase):
         )
         self.assertEqual(
             paths.model_cache_dir,
-            "/runpod-volume/models/step1x-edit-v1p2",
+            "/runpod-volume/models/flux2-klein-4b",
         )
 
     def test_request_validates_paths_and_edit_controls(self):
@@ -46,8 +46,8 @@ class HazardEditContractTests(unittest.TestCase):
         )
 
         self.assertEqual(request.max_images, 30)
-        self.assertEqual(request.model_id, "stepfun-ai/Step1X-Edit-v1p2")
-        self.assertEqual(request.num_inference_steps, 28)
+        self.assertEqual(request.model_id, "black-forest-labs/FLUX.2-klein-4B")
+        self.assertEqual(request.num_inference_steps, 4)
         self.assertEqual(request.true_cfg_scale, 4.0)
         self.assertEqual(request.guidance_scale, 1.0)
         self.assertEqual(request.negative_prompt, " ")
@@ -142,7 +142,7 @@ class HazardEditContractTests(unittest.TestCase):
     def test_build_hazard_edit_manifest_is_review_ready(self):
         manifest = build_hazard_edit_manifest(
             job_id="demo-job",
-            model_id="stepfun-ai/Step1X-Edit-v1p2",
+            model_id="black-forest-labs/FLUX.2-klein-4B",
             prompt="Add a realistic cable trip hazard.",
             source_manifest_path="/runpod-volume/jobs/demo-job/keyframes_manifest.json",
             images=[
@@ -158,7 +158,7 @@ class HazardEditContractTests(unittest.TestCase):
         self.assertEqual(manifest["schema_version"], 1)
         self.assertEqual(manifest["stage"], "hazard-edit")
         self.assertEqual(manifest["job_id"], "demo-job")
-        self.assertEqual(manifest["model_id"], "stepfun-ai/Step1X-Edit-v1p2")
+        self.assertEqual(manifest["model_id"], "black-forest-labs/FLUX.2-klein-4B")
         self.assertEqual(manifest["edited_count"], 1)
         self.assertEqual(manifest["images"][0]["frame_id"], "kf_0001")
 

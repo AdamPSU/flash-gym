@@ -41,9 +41,11 @@ async def segment_hazards(input_data: dict) -> dict:
         DEFAULT_MODEL_CACHE_DIR,
         DEFAULT_MODEL_ID,
         Sam3SegmentationRequest,
+        build_sam3_smoke_edit_manifest,
         build_sam3_segmentation_manifest,
         build_sam3_segmentation_paths,
         select_approved_edited_images,
+        validate_smoke_image_urls,
         validate_volume_path,
     )
 
@@ -168,6 +170,30 @@ async def segment_hazards(input_data: dict) -> dict:
         _sam3_model_cache_dir = model_cache_dir
         return model, processor
 
+    def prepare_smoke_fixture(job_id: str, image_urls: list[str], paths) -> tuple[str, ...]:
+        from urllib.request import Request, urlopen
+
+        urls = validate_smoke_image_urls(image_urls)
+        edited_dir = Path(paths.masks_dir).parent / "edited"
+        edited_dir.mkdir(parents=True, exist_ok=True)
+        for previous_image in edited_dir.glob("kf_*_hazard.*"):
+            previous_image.unlink()
+
+        image_paths = []
+        for index, image_url in enumerate(urls, start=1):
+            suffix = Path(image_url.split("?", 1)[0]).suffix.lower()
+            if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+                suffix = ".jpg"
+            image_path = edited_dir / f"kf_{index:04d}_hazard{suffix}"
+            request = Request(image_url, headers={"User-Agent": "flash-gym-sam3-smoke-test"})
+            with urlopen(request, timeout=30) as response:
+                image_path.write_bytes(response.read(15 * 1024 * 1024))
+            image_paths.append(str(image_path))
+
+        edit_manifest = build_sam3_smoke_edit_manifest(job_id, image_paths)
+        Path(paths.edit_manifest_path).write_text(json.dumps(edit_manifest, indent=2), encoding="utf-8")
+        return tuple(image["frame_id"] for image in edit_manifest["images"])
+
     heartbeat_seconds = max(5, int(input_data.get("heartbeat_seconds", 15)))
     mode = input_data.get("mode", "segment")
     if mode == "warmup":
@@ -202,6 +228,12 @@ async def segment_hazards(input_data: dict) -> dict:
     if not isinstance(job_id, str):
         raise ValueError("job_id must be a safe file-system slug")
     paths = build_sam3_segmentation_paths(job_id)
+    if mode == "smoke_test":
+        approved_frame_ids = prepare_smoke_fixture(
+            job_id,
+            list(input_data.get("image_urls") or ()),
+            paths,
+        )
     progress_path = str(input_data.get("progress_path") or paths.progress_path)
     validate_volume_path(progress_path)
     request = Sam3SegmentationRequest(

@@ -34,6 +34,7 @@ export type ExtractKeyframesResponse = {
   dry_run?: boolean;
   request?: ExtractKeyframesPayload;
   error?: string;
+  details?: unknown;
 };
 
 export type LoadingButtonState = {
@@ -110,7 +111,7 @@ export function buildPipelineRun(jobId: string): PipelineStage[] {
     {
       id: "segmentation",
       label: "image segmentation",
-      detail: "Pending SAM-3 contract.",
+      detail: "SAM-3 contract exists; segment-hazards Flash endpoint is not wired here yet.",
       state: "locked",
     },
   ];
