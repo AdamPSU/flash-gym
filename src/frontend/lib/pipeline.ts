@@ -24,6 +24,13 @@ export type ExtractKeyframesPayload = {
   prefer_gpu_decode: boolean;
 };
 
+export type ExtractedKeyframe = {
+  frame_id: string;
+  path: string;
+  preview_url?: string;
+  timestamp_ms?: number;
+};
+
 export type ExtractKeyframesResponse = {
   job_id: string;
   status: string;
@@ -31,6 +38,7 @@ export type ExtractKeyframesResponse = {
   keyframes_dir: string;
   decode_mode?: string;
   extracted_count: number;
+  frames?: ExtractedKeyframe[];
   dry_run?: boolean;
   request?: ExtractKeyframesPayload;
   error?: string;
@@ -40,6 +48,13 @@ export type ExtractKeyframesResponse = {
 export type LoadingButtonState = {
   busy: boolean;
   label: string;
+};
+
+export type DemoRunMetadata = {
+  fileName: string;
+  jobId: string;
+  maxKeyframes: number;
+  preferGpuDecode: boolean;
 };
 
 export function createSafeJobId(fileName: string): string {
@@ -55,6 +70,15 @@ export function createSafeJobId(fileName: string): string {
 
 export function buildRunTitle(fileName: string): string {
   return fileName.trim() || "upload video";
+}
+
+export function buildDemoRunMetadata(): DemoRunMetadata {
+  return {
+    fileName: "runpod-venue.mov",
+    jobId: "runpod-venue",
+    maxKeyframes: 5,
+    preferGpuDecode: true,
+  };
 }
 
 export function buildVolumeVideoPath(jobId: string): string {
@@ -123,6 +147,28 @@ export function toggleFrameDeleted(frames: ReviewFrame[], frameId: string): Revi
 
 export function countApprovedFrames(frames: ReviewFrame[]): number {
   return frames.filter((frame) => !frame.deleted).length;
+}
+
+export function framesFromExtractResponse(response: ExtractKeyframesResponse): ReviewFrame[] {
+  const frames = response.frames?.length ? response.frames : numberedFrames(response.keyframes_dir, response.extracted_count);
+
+  return frames.map((frame) => ({
+    frameId: frame.frame_id,
+    path: frame.path,
+    previewUrl: frame.preview_url,
+    timestampMs: frame.timestamp_ms,
+    deleted: false,
+  }));
+}
+
+function numberedFrames(keyframesDir: string, count: number): ExtractedKeyframe[] {
+  return Array.from({ length: count }, (_, index) => {
+    const frameId = `kf_${String(index + 1).padStart(4, "0")}`;
+    return {
+      frame_id: frameId,
+      path: `${keyframesDir}/${frameId}.jpg`,
+    };
+  });
 }
 
 export function buildDryRunResponse(payload: ExtractKeyframesPayload): ExtractKeyframesResponse {

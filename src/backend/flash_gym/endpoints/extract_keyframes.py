@@ -24,7 +24,7 @@ class KeyframeJobPaths:
 class KeyframeExtractionRequest:
     job_id: str
     video_path: str
-    max_keyframes: int = 30
+    max_keyframes: int = 5
     prefer_gpu_decode: bool = True
 
     def __post_init__(self) -> None:
@@ -124,9 +124,11 @@ async def extract_keyframes(input_data: dict) -> dict:
     if not video_path.is_file():
         raise FileNotFoundError(f"video not found: {video_path}")
 
-    max_keyframes = int(input_data.get("max_keyframes", 30))
+    max_keyframes = int(input_data.get("max_keyframes", 5))
     if max_keyframes < 1:
         raise ValueError("max_keyframes must be at least 1")
+    if max_keyframes > 5:
+        raise ValueError("max_keyframes must be at most 5")
 
     job_root = volume_root / "jobs" / job_id
     paths = {
@@ -240,9 +242,12 @@ async def extract_keyframes(input_data: dict) -> dict:
     frames = []
     keyframe_files = sorted(paths["keyframes_dir"].glob("kf_*.jpg"))
     for index, keyframe_path in enumerate(keyframe_files[:max_keyframes]):
+        import base64
+
         frame = {
             "frame_id": keyframe_path.stem,
             "path": str(keyframe_path),
+            "preview_url": f"data:image/jpeg;base64,{base64.b64encode(keyframe_path.read_bytes()).decode('ascii')}",
         }
         if index < len(keyframe_metadata) and keyframe_metadata[index]["timestamp_ms"] is not None:
             frame["timestamp_ms"] = keyframe_metadata[index]["timestamp_ms"]
@@ -269,4 +274,5 @@ async def extract_keyframes(input_data: dict) -> dict:
         "keyframes_dir": str(paths["keyframes_dir"]),
         "decode_mode": decode_mode,
         "extracted_count": len(frames),
+        "frames": frames,
     }

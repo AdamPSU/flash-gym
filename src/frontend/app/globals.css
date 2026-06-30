@@ -188,7 +188,8 @@ input:focus-visible {
 }
 
 .primaryButton,
-.ghostButton {
+.ghostButton,
+.demoButton {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -237,7 +238,8 @@ input:focus-visible {
 }
 
 .primaryButton:hover:not(:disabled),
-.ghostButton:hover {
+.ghostButton:hover,
+.demoButton:hover {
   transform: translateY(-1px);
 }
 
@@ -253,10 +255,28 @@ input:focus-visible {
   }
 }
 
-.ghostButton {
+.ghostButton,
+.demoButton {
   border: 1px solid var(--line-strong);
   background: #0c0c10;
   color: var(--text);
+}
+
+.demoButton {
+  align-self: start;
+  min-width: 82px;
+  padding: 0 14px;
+  color: var(--lime);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.demoButton[data-active="true"] {
+  border-color: rgba(191, 255, 0, 0.5);
+  background: rgba(191, 255, 0, 0.12);
+  color: var(--lime);
 }
 
 .errorText {
@@ -293,6 +313,13 @@ input:focus-visible {
   overflow: hidden;
   background: #050506;
   padding: clamp(18px, 2.8vh, 28px) clamp(20px, 3vw, 34px);
+}
+
+.runHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 24px;
 }
 
 .runHeader,

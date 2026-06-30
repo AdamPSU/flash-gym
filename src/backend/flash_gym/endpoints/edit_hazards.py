@@ -19,7 +19,7 @@ phase2_volume = NetworkVolume(
     template=PodTemplate(containerDiskInGb=100),
     dependencies=[
         "accelerate",
-        "git+https://github.com/huggingface/diffusers.git",
+        "diffusers @ git+https://github.com/huggingface/diffusers.git@6d71b76aceff935192e58fee38c5cc5d8d227cf0",
         "huggingface_hub",
         "pillow",
         "safetensors",
@@ -208,6 +208,26 @@ async def edit_hazards(input_data: dict) -> dict:
         resized_size = (max(1, round(width * scale)), max(1, round(height * scale)))
         return image.resize(resized_size, Image.Resampling.LANCZOS)
 
+    def patch_diffusers_torch_utils_for_flux2(torch_module) -> None:
+        import diffusers.utils.torch_utils as torch_utils
+
+        if hasattr(torch_utils, "maybe_adjust_dtype_for_device"):
+            return
+
+        unsupported_devices = {
+            torch_module.float64: {"mps", "npu", "neuron"},
+            torch_module.int64: {"mps", "npu", "neuron"},
+        }
+        dtype_downcast = {torch_module.float64: torch_module.float32, torch_module.int64: torch_module.int32}
+
+        def maybe_adjust_dtype_for_device(dtype, device):
+            device_type = getattr(device, "type", str(device))
+            if device_type in unsupported_devices.get(dtype, set()):
+                return dtype_downcast[dtype]
+            return dtype
+
+        torch_utils.maybe_adjust_dtype_for_device = maybe_adjust_dtype_for_device
+
     def ensure_flux2_klein_pipeline(
         model_id: str,
         model_cache_dir: str,
@@ -215,6 +235,8 @@ async def edit_hazards(input_data: dict) -> dict:
         heartbeat_seconds: int,
     ):
         import torch
+
+        patch_diffusers_torch_utils_for_flux2(torch)
         from diffusers.pipelines.flux2.pipeline_flux2_klein import Flux2KleinPipeline
         from huggingface_hub import snapshot_download
 

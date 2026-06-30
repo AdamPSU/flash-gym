@@ -23,12 +23,17 @@ class HazardEditEndpointTests(unittest.TestCase):
     def test_flux2_runtime_dependencies_are_declared(self):
         dependencies = edit_hazards.__remote_config__["dependencies"]
 
-        self.assertIn("git+https://github.com/huggingface/diffusers.git", dependencies)
+        self.assertIn(
+            "diffusers @ git+https://github.com/huggingface/diffusers.git@6d71b76aceff935192e58fee38c5cc5d8d227cf0",
+            dependencies,
+        )
         self.assertIn("transformers", dependencies)
 
     def test_endpoint_body_uses_flux2_klein_pipeline(self):
         source = inspect.getsource(edit_hazards)
 
+        self.assertIn("patch_diffusers_torch_utils_for_flux2", source)
+        self.assertIn("maybe_adjust_dtype_for_device", source)
         self.assertIn("from diffusers.pipelines.flux2.pipeline_flux2_klein import Flux2KleinPipeline", source)
         self.assertIn("Flux2KleinPipeline", source)
         self.assertIn("black-forest-labs/FLUX.2-klein-4B", source)

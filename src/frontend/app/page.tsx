@@ -3,6 +3,7 @@
 import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 
 import {
+  buildDemoRunMetadata,
   buildExtractKeyframesPayload,
   buildLoadingButtonState,
   buildManifestPath,
@@ -12,6 +13,7 @@ import {
   countApprovedFrames,
   createSafeJobId,
   ExtractKeyframesResponse,
+  framesFromExtractResponse,
   PipelineStage,
   RequestState,
   ReviewFrame,
@@ -55,7 +57,7 @@ const initialFrames: ReviewFrame[] = [
 export default function PipelineConsole() {
   const [jobId, setJobId] = useState(initialJobId);
   const [selectedFile, setSelectedFile] = useState("");
-  const [maxKeyframes, setMaxKeyframes] = useState(30);
+  const [maxKeyframes, setMaxKeyframes] = useState(5);
   const [preferGpuDecode, setPreferGpuDecode] = useState(true);
   const [frames, setFrames] = useState(initialFrames);
   const [activeFrameIndex, setActiveFrameIndex] = useState(0);
@@ -63,6 +65,7 @@ export default function PipelineConsole() {
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [errorDetails, setErrorDetails] = useState("");
+  const [demoMode, setDemoMode] = useState(false);
 
   const videoPath = buildVolumeVideoPath(jobId);
   const manifestPath = buildManifestPath(jobId);
@@ -84,6 +87,7 @@ export default function PipelineConsole() {
     setSelectedFile(file.name);
     setJobId(createSafeJobId(file.name));
     setExtractResponse(null);
+    setDemoMode(false);
   }
 
   async function handleExtract(event: FormEvent<HTMLFormElement>) {
@@ -107,7 +111,10 @@ export default function PipelineConsole() {
         return;
       }
 
+      const extractedFrames = framesFromExtractResponse(body);
       setExtractResponse(body);
+      setFrames(extractedFrames);
+      setActiveFrameIndex(0);
       setRequestState("idle");
       setErrorDetails("");
     } catch (error) {
@@ -135,6 +142,30 @@ export default function PipelineConsole() {
       return;
     }
     setFrames((currentFrames) => toggleFrameDeleted(currentFrames, activeFrame.frameId));
+  }
+
+  function toggleDemoMode() {
+    if (demoMode) {
+      setDemoMode(false);
+      setSelectedFile("");
+      setExtractResponse(null);
+      setErrorMessage("");
+      setErrorDetails("");
+      return;
+    }
+
+    const demo = buildDemoRunMetadata();
+    setDemoMode(true);
+    setSelectedFile(demo.fileName);
+    setJobId(demo.jobId);
+    setMaxKeyframes(demo.maxKeyframes);
+    setPreferGpuDecode(demo.preferGpuDecode);
+    setFrames(initialFrames);
+    setActiveFrameIndex(0);
+    setExtractResponse(null);
+    setRequestState("idle");
+    setErrorMessage("");
+    setErrorDetails("");
   }
 
   return (
@@ -178,7 +209,7 @@ export default function PipelineConsole() {
                 className="textInput"
                 type="number"
                 min="1"
-                max="30"
+                max="5"
                 value={maxKeyframes}
                 onChange={(event) => setMaxKeyframes(Number(event.target.value))}
               />
@@ -216,6 +247,9 @@ export default function PipelineConsole() {
             <p className="eyebrow">Pipeline run</p>
             <h2>{runTitle}</h2>
           </div>
+          <button className="demoButton" type="button" onClick={toggleDemoMode} data-active={demoMode ? "true" : "false"}>
+            {demoMode ? "demo on" : "demo"}
+          </button>
         </div>
 
         <ol className="stageLog">

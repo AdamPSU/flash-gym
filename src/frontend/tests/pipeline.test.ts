@@ -9,6 +9,7 @@ import {
   buildVolumeVideoPath,
   countApprovedFrames,
   createSafeJobId,
+  framesFromExtractResponse,
   toggleFrameDeleted,
 } from "../lib/pipeline";
 
@@ -51,7 +52,7 @@ describe("pipeline helpers", () => {
     expect(buildDemoRunMetadata()).toEqual({
       fileName: "runpod-venue.mov",
       jobId: "runpod-venue",
-      maxKeyframes: 30,
+      maxKeyframes: 5,
       preferGpuDecode: true,
     });
   });
@@ -93,5 +94,35 @@ describe("pipeline helpers", () => {
     ]);
     expect(frames[1].deleted).toBe(false);
     expect(countApprovedFrames(nextFrames)).toBe(1);
+  });
+
+  it("builds review frames from an extraction response", () => {
+    expect(
+      framesFromExtractResponse({
+        job_id: "demo",
+        status: "extracted",
+        manifest_path: "/runpod-volume/jobs/demo/keyframes_manifest.json",
+        keyframes_dir: "/runpod-volume/jobs/demo/keyframes",
+        extracted_count: 2,
+        frames: [
+          {
+            frame_id: "kf_0001",
+            path: "/runpod-volume/jobs/demo/keyframes/kf_0001.jpg",
+            preview_url: "data:image/jpeg;base64,abc",
+            timestamp_ms: 1000,
+          },
+          { frame_id: "kf_0002", path: "/runpod-volume/jobs/demo/keyframes/kf_0002.jpg" },
+        ],
+      }),
+    ).toEqual([
+      {
+        frameId: "kf_0001",
+        path: "/runpod-volume/jobs/demo/keyframes/kf_0001.jpg",
+        previewUrl: "data:image/jpeg;base64,abc",
+        timestampMs: 1000,
+        deleted: false,
+      },
+      { frameId: "kf_0002", path: "/runpod-volume/jobs/demo/keyframes/kf_0002.jpg", deleted: false },
+    ]);
   });
 });

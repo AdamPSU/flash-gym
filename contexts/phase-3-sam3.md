@@ -23,7 +23,7 @@ Current phase 3 files:
 - `tests/test_sam3_segmentation_contract.py`
 - `tests/test_sam3_segmentation_endpoint.py`
 
-The Flash endpoint is configured as a queue based GPU endpoint named `segment-hazards`. It uses `GpuGroup.AMPERE_80`, `workers=(0, 1)`, `idle_timeout=1200`, the `flash-gym-artifacts` network volume in `US-CA-2`, and a 100 GB container disk.
+The Flash endpoint is configured as a queue based GPU endpoint named `segment-hazards`. It uses `[GpuGroup.ADA_48_PRO, GpuGroup.AMPERE_48]`, `workers=(0, 1)`, `idle_timeout=1200`, the `flash-gym-artifacts` network volume in `US-CA-2`, and a 100 GB container disk. This avoids blocking on scarce `AMPERE_80` availability during the demo.
 
 ## Contract
 

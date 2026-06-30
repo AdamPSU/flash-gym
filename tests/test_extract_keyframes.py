@@ -20,7 +20,7 @@ class KeyframeContractTests(unittest.TestCase):
             KeyframeExtractionRequest(
                 job_id="demo-job",
                 video_path="/tmp/video.mov",
-                max_keyframes=30,
+                max_keyframes=5,
             )
 
         self.assertIn("/runpod-volume", str(error.exception))
@@ -30,6 +30,7 @@ class KeyframeContractTests(unittest.TestCase):
 
         self.assertIn("max_keyframes", fields)
         self.assertIn("prefer_gpu_decode", fields)
+        self.assertEqual(KeyframeExtractionRequest("demo-job", "/runpod-volume/jobs/demo-job/input/video.mov").max_keyframes, 5)
         self.assertNotIn("candidate_multiplier", fields)
         self.assertNotIn("min_spacing_seconds", fields)
         self.assertNotIn("max_dimension", fields)

@@ -21,7 +21,7 @@ describe("extract keyframes route", () => {
   it("reports partial Runpod config instead of silently dry-running", async () => {
     process.env = { ...originalEnv, RUNPOD_API_KEY: "test-key", RUNPOD_EXTRACT_KEYFRAMES_URL: "" };
 
-    const response = await POST(makeRequest({ jobId: "demo-job", maxKeyframes: 12 }));
+    const response = await POST(makeRequest({ jobId: "demo-job", maxKeyframes: 5 }));
     const body = await response.json();
 
     expect(response.status).toBe(500);
@@ -49,7 +49,7 @@ describe("extract keyframes route", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await POST(makeRequest({ jobId: "demo-job", maxKeyframes: 12 }));
+    const response = await POST(makeRequest({ jobId: "demo-job", maxKeyframes: 5 }));
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -62,7 +62,7 @@ describe("extract keyframes route", () => {
             input_data: {
               job_id: "demo-job",
               video_path: "/runpod-volume/jobs/demo-job/input/video.mov",
-              max_keyframes: 12,
+              max_keyframes: 5,
               prefer_gpu_decode: true,
             },
           },
@@ -96,7 +96,7 @@ describe("extract keyframes route", () => {
       ),
     );
 
-    const response = await POST(makeRequest({ jobId: "demo-job", maxKeyframes: 12 }));
+    const response = await POST(makeRequest({ jobId: "demo-job", maxKeyframes: 5 }));
     const body = await response.json();
 
     expect(response.status).toBe(502);

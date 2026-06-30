@@ -12,7 +12,7 @@ phase3_volume = NetworkVolume(
 
 @Endpoint(
     name="segment-hazards",
-    gpu=GpuGroup.AMPERE_80,
+    gpu=[GpuGroup.ADA_48_PRO, GpuGroup.AMPERE_48],
     datacenter=DataCenter.US_CA_2,
     volume=phase3_volume,
     workers=(0, 1),

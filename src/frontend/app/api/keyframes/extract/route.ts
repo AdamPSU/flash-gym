@@ -19,15 +19,15 @@ const JOB_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 export async function POST(request: Request) {
   const body = (await request.json()) as ExtractRequestBody;
   const jobId = typeof body.jobId === "string" ? body.jobId.trim() : "";
-  const maxKeyframes = Number(body.maxKeyframes ?? 30);
+  const maxKeyframes = Number(body.maxKeyframes ?? 5);
   const preferGpuDecode = body.preferGpuDecode !== false;
 
   if (!JOB_ID_PATTERN.test(jobId)) {
     return NextResponse.json({ error: "jobId must be a safe file-system slug" }, { status: 400 });
   }
 
-  if (!Number.isInteger(maxKeyframes) || maxKeyframes < 1 || maxKeyframes > 30) {
-    return NextResponse.json({ error: "maxKeyframes must be an integer from 1 to 30" }, { status: 400 });
+  if (!Number.isInteger(maxKeyframes) || maxKeyframes < 1 || maxKeyframes > 5) {
+    return NextResponse.json({ error: "maxKeyframes must be an integer from 1 to 5" }, { status: 400 });
   }
 
   const payload = buildExtractKeyframesPayload(jobId, maxKeyframes, preferGpuDecode);
