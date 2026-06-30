@@ -8,6 +8,7 @@ BACKEND_SRC = PROJECT_ROOT / "src" / "backend"
 sys.path.insert(0, str(BACKEND_SRC))
 
 from flash_gym.endpoints.extract_keyframes import (  # noqa: E402
+    FRAME_INTERVAL_SECONDS,
     KeyframeExtractionRequest,
     build_job_paths,
     build_keyframe_manifest,
@@ -31,9 +32,20 @@ class KeyframeContractTests(unittest.TestCase):
         self.assertIn("max_keyframes", fields)
         self.assertIn("prefer_gpu_decode", fields)
         self.assertEqual(KeyframeExtractionRequest("demo-job", "/runpod-volume/jobs/demo-job/input/video.mov").max_keyframes, 5)
+        self.assertEqual(FRAME_INTERVAL_SECONDS, 5)
         self.assertNotIn("candidate_multiplier", fields)
         self.assertNotIn("min_spacing_seconds", fields)
         self.assertNotIn("max_dimension", fields)
+
+    def test_request_caps_demo_extraction_at_five_frames(self):
+        with self.assertRaises(ValueError) as error:
+            KeyframeExtractionRequest(
+                job_id="demo-job",
+                video_path="/runpod-volume/jobs/demo-job/input/video.mov",
+                max_keyframes=6,
+            )
+
+        self.assertIn("at most 5", str(error.exception))
 
     def test_build_job_paths_uses_expected_volume_layout(self):
         paths = build_job_paths("demo-job")

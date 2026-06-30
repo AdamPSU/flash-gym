@@ -23,6 +23,7 @@ Sources captured on 2026-06-30.
 - User clarified keyframe manifest visual behavior: no candidate badge, full panel active frame, thumbnail navigation, and no page scrolling.
 - User clarified that phase 3 should use Hugging Face `facebook/sam3` and reported that access to the gated model has been granted.
 - User clarified frontend visual behavior: loading buttons must be obvious during waits, `local setup` should not appear in the header, upload video should not be a documented stage row, and keyframe previous, next, and remove controls should live inside the manifest preview.
+- User added real keyframes from the venue video under `media/` and clarified that demo extraction should show those keyframes when the user clicks `Extract keyframes`.
 
 ## Runpod Flash documentation
 

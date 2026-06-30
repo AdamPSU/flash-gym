@@ -36,6 +36,10 @@ class HazardEditEndpointTests(unittest.TestCase):
         self.assertIn("maybe_adjust_dtype_for_device", source)
         self.assertIn("from diffusers.pipelines.flux2.pipeline_flux2_klein import Flux2KleinPipeline", source)
         self.assertIn("Flux2KleinPipeline", source)
+        self.assertIn("pipeline_cpu_offload", source)
+        self.assertIn("low_cpu_mem_usage=False", source)
+        self.assertIn("pipeline.enable_model_cpu_offload()", source)
+        self.assertNotIn("pipeline.to(\"cuda\")", source)
         self.assertIn("black-forest-labs/FLUX.2-klein-4B", source)
         self.assertNotIn("Step1XEditPipelineV1P2", source)
 

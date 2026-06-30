@@ -9,6 +9,7 @@ from runpod_flash import DataCenter, Endpoint, GpuGroup, NetworkVolume
 
 
 VOLUME_ROOT = "/runpod-volume"
+FRAME_INTERVAL_SECONDS = 5
 JOB_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
@@ -32,6 +33,8 @@ class KeyframeExtractionRequest:
         validate_volume_path(self.video_path)
         if self.max_keyframes < 1:
             raise ValueError("max_keyframes must be at least 1")
+        if self.max_keyframes > 5:
+            raise ValueError("max_keyframes must be at most 5")
 
 
 def build_job_paths(
@@ -104,6 +107,7 @@ phase1_volume = NetworkVolume(
 )
 async def extract_keyframes(input_data: dict) -> dict:
     from pathlib import Path
+    import base64
     import json
     import subprocess
     import time
@@ -166,39 +170,6 @@ async def extract_keyframes(input_data: dict) -> dict:
     prefer_gpu_decode = bool(input_data.get("prefer_gpu_decode", True))
     decode_mode = "cuda" if prefer_gpu_decode and "cuda" in cuda_decode_available.stdout else "cpu"
 
-    keyframe_probe = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-skip_frame",
-            "nokey",
-            "-show_frames",
-            "-show_entries",
-            "frame=best_effort_timestamp_time,pkt_pts_time,pict_type",
-            "-of",
-            "json",
-            str(video_path),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    keyframe_metadata = []
-    if keyframe_probe.returncode == 0 and keyframe_probe.stdout:
-        for frame in json.loads(keyframe_probe.stdout).get("frames", []):
-            if frame.get("pict_type") != "I":
-                continue
-            timestamp = frame.get("best_effort_timestamp_time") or frame.get("pkt_pts_time")
-            timestamp_ms = None
-            if timestamp and timestamp != "N/A":
-                timestamp_ms = round(float(timestamp) * 1000)
-            keyframe_metadata.append({"timestamp_ms": timestamp_ms})
-            if len(keyframe_metadata) >= max_keyframes:
-                break
-
     output_pattern = paths["keyframes_dir"] / "kf_%04d.jpg"
 
     def build_ffmpeg_command(use_cuda: bool) -> list[str]:
@@ -207,12 +178,12 @@ async def extract_keyframes(input_data: dict) -> dict:
             command.extend(["-hwaccel", "cuda"])
         command.extend(
             [
-                "-skip_frame",
-                "nokey",
                 "-i",
                 str(video_path),
                 "-map",
                 "0:v:0",
+                "-vf",
+                f"fps=1/{FRAME_INTERVAL_SECONDS}",
                 "-frames:v",
                 str(max_keyframes),
                 "-q:v",
@@ -242,15 +213,12 @@ async def extract_keyframes(input_data: dict) -> dict:
     frames = []
     keyframe_files = sorted(paths["keyframes_dir"].glob("kf_*.jpg"))
     for index, keyframe_path in enumerate(keyframe_files[:max_keyframes]):
-        import base64
-
         frame = {
             "frame_id": keyframe_path.stem,
             "path": str(keyframe_path),
             "preview_url": f"data:image/jpeg;base64,{base64.b64encode(keyframe_path.read_bytes()).decode('ascii')}",
+            "timestamp_ms": index * FRAME_INTERVAL_SECONDS * 1000,
         }
-        if index < len(keyframe_metadata) and keyframe_metadata[index]["timestamp_ms"] is not None:
-            frame["timestamp_ms"] = keyframe_metadata[index]["timestamp_ms"]
         frames.append(frame)
 
     manifest = build_keyframe_manifest(job_id=job_id, decode_mode=decode_mode, frames=frames)

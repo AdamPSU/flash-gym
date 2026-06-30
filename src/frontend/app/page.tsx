@@ -3,6 +3,7 @@
 import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 
 import {
+  buildDemoExtractResponse,
   buildDemoRunMetadata,
   buildExtractKeyframesPayload,
   buildLoadingButtonState,
@@ -96,6 +97,15 @@ export default function PipelineConsole() {
     setErrorMessage("");
     setErrorDetails("");
 
+    if (demoMode) {
+      const body = buildDemoExtractResponse(jobId, maxKeyframes);
+      setExtractResponse(body);
+      setFrames(framesFromExtractResponse(body));
+      setActiveFrameIndex(0);
+      setRequestState("idle");
+      return;
+    }
+
     try {
       const response = await fetch("/api/keyframes/extract", {
         method: "POST",
@@ -160,7 +170,7 @@ export default function PipelineConsole() {
     setJobId(demo.jobId);
     setMaxKeyframes(demo.maxKeyframes);
     setPreferGpuDecode(demo.preferGpuDecode);
-    setFrames(initialFrames);
+    setFrames([]);
     setActiveFrameIndex(0);
     setExtractResponse(null);
     setRequestState("idle");

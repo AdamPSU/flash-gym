@@ -27,6 +27,15 @@ class Sam3SegmentationContractTests(unittest.TestCase):
         self.assertEqual(env["HF_TOKEN"], "fake-token-for-test")
         self.assertEqual(env["HF_HOME"], "/runpod-volume/.cache/huggingface")
 
+    def test_build_endpoint_env_supports_worker_tmp_cache(self):
+        env = build_sam3_endpoint_env(
+            hf_token="fake-token-for-test",
+            hf_home="/tmp/flash-gym/.cache/huggingface",
+        )
+
+        self.assertEqual(env["HF_HOME"], "/tmp/flash-gym/.cache/huggingface")
+        self.assertEqual(env["HF_HUB_CACHE"], "/tmp/flash-gym/.cache/huggingface/hub")
+
     def test_validate_smoke_image_urls_allows_only_small_http_batches(self):
         urls = validate_smoke_image_urls(
             [

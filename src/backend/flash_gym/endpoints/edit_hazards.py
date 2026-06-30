@@ -278,10 +278,11 @@ async def edit_hazards(input_data: dict) -> dict:
             pipeline = Flux2KleinPipeline.from_pretrained(
                 snapshot_path,
                 torch_dtype=torch.bfloat16,
+                low_cpu_mem_usage=False,
                 local_files_only=True,
             )
-        with observed_phase(progress_path, "pipeline_cuda", heartbeat_seconds, model_id=model_id):
-            pipeline.to("cuda")
+        with observed_phase(progress_path, "pipeline_cpu_offload", heartbeat_seconds, model_id=model_id):
+            pipeline.enable_model_cpu_offload()
         pipeline.set_progress_bar_config(disable=True)
         _flux2_klein_pipeline = pipeline
         _flux2_klein_model_id = model_id

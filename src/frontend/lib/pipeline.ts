@@ -57,6 +57,8 @@ export type DemoRunMetadata = {
   preferGpuDecode: boolean;
 };
 
+const DEMO_FRAME_IDS = ["kf_0001", "kf_0002", "kf_0003", "kf_0004", "kf_0005"];
+
 export function createSafeJobId(fileName: string): string {
   const withoutExtension = fileName.replace(/\.[^.]+$/, "");
   const slug = withoutExtension
@@ -78,6 +80,27 @@ export function buildDemoRunMetadata(): DemoRunMetadata {
     jobId: "runpod-venue",
     maxKeyframes: 5,
     preferGpuDecode: true,
+  };
+}
+
+export function buildDemoExtractResponse(jobId: string, maxKeyframes: number): ExtractKeyframesResponse {
+  const keyframesDir = buildKeyframesDir(jobId);
+  const frames = DEMO_FRAME_IDS.slice(0, maxKeyframes).map((frameId, index) => ({
+    frame_id: frameId,
+    path: `${keyframesDir}/${frameId}.png`,
+    preview_url: `/api/demo-keyframes/${frameId}.png`,
+    timestamp_ms: (index + 1) * 5000,
+  }));
+
+  return {
+    job_id: jobId,
+    status: "demo-extracted",
+    manifest_path: buildManifestPath(jobId),
+    keyframes_dir: keyframesDir,
+    extracted_count: frames.length,
+    dry_run: true,
+    request: buildExtractKeyframesPayload(jobId, maxKeyframes, true),
+    frames,
   };
 }
 

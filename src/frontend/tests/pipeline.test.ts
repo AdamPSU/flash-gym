@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildExtractKeyframesPayload,
+  buildDemoExtractResponse,
   buildDemoRunMetadata,
   buildLoadingButtonState,
   buildPipelineRun,
@@ -24,10 +25,10 @@ describe("pipeline helpers", () => {
   });
 
   it("builds the extract-keyframes request payload from the endpoint contract", () => {
-    expect(buildExtractKeyframesPayload("runpod-venue", 24, false)).toEqual({
+    expect(buildExtractKeyframesPayload("runpod-venue", 5, false)).toEqual({
       job_id: "runpod-venue",
       video_path: "/runpod-volume/jobs/runpod-venue/input/video.mov",
-      max_keyframes: 24,
+      max_keyframes: 5,
       prefer_gpu_decode: false,
     });
   });
@@ -54,6 +55,55 @@ describe("pipeline helpers", () => {
       jobId: "runpod-venue",
       maxKeyframes: 5,
       preferGpuDecode: true,
+    });
+  });
+
+  it("builds a local demo extraction response from venue keyframes", () => {
+    expect(buildDemoExtractResponse("runpod-venue", 5)).toEqual({
+      job_id: "runpod-venue",
+      status: "demo-extracted",
+      manifest_path: "/runpod-volume/jobs/runpod-venue/keyframes_manifest.json",
+      keyframes_dir: "/runpod-volume/jobs/runpod-venue/keyframes",
+      extracted_count: 5,
+      dry_run: true,
+      request: {
+        job_id: "runpod-venue",
+        video_path: "/runpod-volume/jobs/runpod-venue/input/video.mov",
+        max_keyframes: 5,
+        prefer_gpu_decode: true,
+      },
+      frames: [
+        {
+          frame_id: "kf_0001",
+          path: "/runpod-volume/jobs/runpod-venue/keyframes/kf_0001.png",
+          preview_url: "/api/demo-keyframes/kf_0001.png",
+          timestamp_ms: 5000,
+        },
+        {
+          frame_id: "kf_0002",
+          path: "/runpod-volume/jobs/runpod-venue/keyframes/kf_0002.png",
+          preview_url: "/api/demo-keyframes/kf_0002.png",
+          timestamp_ms: 10000,
+        },
+        {
+          frame_id: "kf_0003",
+          path: "/runpod-volume/jobs/runpod-venue/keyframes/kf_0003.png",
+          preview_url: "/api/demo-keyframes/kf_0003.png",
+          timestamp_ms: 15000,
+        },
+        {
+          frame_id: "kf_0004",
+          path: "/runpod-volume/jobs/runpod-venue/keyframes/kf_0004.png",
+          preview_url: "/api/demo-keyframes/kf_0004.png",
+          timestamp_ms: 20000,
+        },
+        {
+          frame_id: "kf_0005",
+          path: "/runpod-volume/jobs/runpod-venue/keyframes/kf_0005.png",
+          preview_url: "/api/demo-keyframes/kf_0005.png",
+          timestamp_ms: 25000,
+        },
+      ],
     });
   });
 

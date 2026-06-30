@@ -23,7 +23,7 @@ Current phase 3 files:
 - `tests/test_sam3_segmentation_contract.py`
 - `tests/test_sam3_segmentation_endpoint.py`
 
-The Flash endpoint is configured as a queue based GPU endpoint named `segment-hazards`. It uses `[GpuGroup.ADA_48_PRO, GpuGroup.AMPERE_48]`, `workers=(0, 1)`, `idle_timeout=1200`, the `flash-gym-artifacts` network volume in `US-CA-2`, and a 100 GB container disk. This avoids blocking on scarce `AMPERE_80` availability during the demo.
+The Flash endpoint is configured as a queue based GPU endpoint named `segment-hazards`. It uses `[GpuGroup.ADA_48_PRO, GpuGroup.AMPERE_48, GpuGroup.ADA_80_PRO, GpuGroup.AMPERE_80, GpuGroup.BLACKWELL_96, GpuGroup.HOPPER_141, GpuGroup.BLACKWELL_180]`, `workers=(0, 1)`, `idle_timeout=1200`, the `flash-gym-artifacts` network volume in `US-CA-2`, and a 100 GB container disk. This avoids blocking on one scarce GPU pool during the demo.
 
 ## Contract
 
@@ -66,6 +66,22 @@ Warmup mode is supported with:
 
 Real segmentation mode should be one Flash request for the reviewed edited image set, not one request per image.
 
+Smoke test mode is supported with real public image URLs:
+
+```json
+{
+  "mode": "smoke_test",
+  "job_id": "sam3-smoke-cats",
+  "image_urls": [
+    "https://images.cocodataset.org/val2017/000000039769.jpg",
+    "https://images.cocodataset.org/val2017/000000077595.jpg"
+  ],
+  "concept_prompt": "cat"
+}
+```
+
+This mode downloads the images on the worker, writes a phase 2 shaped `edit_manifest.json`, then runs the normal segmentation path.
+
 ## Validation completed
 
 The following checks passed locally with `.venv/bin/python`:
@@ -79,4 +95,4 @@ The following checks passed locally with `.venv/bin/python`:
 
 Local interactive zsh reported that `HF_TOKEN` is present without printing the token value.
 
-Real SAM3 inference has not been run yet. It requires `HF_TOKEN` to be forwarded to the Flash worker and at least one phase 2 edited image manifest on the Runpod network volume.
+Real SAM3 inference has not completed yet. Attempts with `AMPERE_80`, then 48 GB and broader fallback pools, remained queued with no worker after bounded polling. The smoke job was cancelled and local `flash dev` was stopped. Current blocker is Runpod worker capacity/provisioning for the `segment-hazards` endpoint in `US-CA-2`, not a SAM3 inference error.

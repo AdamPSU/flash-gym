@@ -59,10 +59,15 @@ class Sam3SegmentationRequest:
         validate_threshold(self.mask_threshold, "mask_threshold")
 
 
-def build_sam3_endpoint_env(hf_token: str | None = None) -> dict[str, str]:
+def build_sam3_endpoint_env(
+    hf_token: str | None = None,
+    hf_home: str = DEFAULT_HF_HOME,
+    hf_hub_cache: str | None = None,
+) -> dict[str, str]:
+    hub_cache = hf_hub_cache or str(Path(hf_home) / "hub")
     env = {
-        "HF_HOME": DEFAULT_HF_HOME,
-        "HF_HUB_CACHE": DEFAULT_HF_HUB_CACHE,
+        "HF_HOME": hf_home,
+        "HF_HUB_CACHE": hub_cache,
         "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
         "TOKENIZERS_PARALLELISM": "false",
     }

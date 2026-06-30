@@ -49,7 +49,7 @@ The current idea is a dataset generation workflow for hazard recognition or safe
 Seed workflow:
 
 - Accept a user submitted video of a venue.
-- Extract video keyframes with FFmpeg/NVDEC, capped to about 30 keyframes for the demo.
+- Extract review frames with FFmpeg/NVDEC, capped to 5 frames for the demo and spaced 5 seconds apart.
 - Let the user review extracted keyframes one image at a time, move forward and backward, and delete or restore frames before later stages.
 - Edit realistic hazards into selected keyframes using qwen edit 2511.
 - Let the user review edited images one image at a time, move forward and backward, and delete or restore generated images before labeling.
@@ -82,6 +82,7 @@ Current frontend notes:
 - The visible frontend pipeline should show three documented steps: extract keyframes, image editing, and image segmentation. Upload video is explained by the source video panel and should not appear as a stage row.
 - Keyframe review actions should live inside the manifest frame: previous and next arrows over the preview, plus an X button in the top right to remove or restore the active frame. Do not show an isolated review buffer box in the left pane.
 - Buttons that start a wait should show clear loading feedback. The pipeline run header should not show the `local setup` status pill.
+- Demo mode uses the real venue keyframes under `media/`. In demo mode, clicking `Extract keyframes` should populate the keyframe manifest from those local images instead of calling the Runpod proxy.
 
 ## Serverless constraints
 
@@ -106,9 +107,9 @@ The pipeline may involve large models across image editing, segmentation, and lo
 
 Use one Flash request per stage per approved set, not one request per image.
 
-For a demo capped at about 30 keyframes, the target shape is:
+For a demo capped at 5 review frames, the target shape is:
 
-- One GPU Flash job extracts video keyframes from the uploaded video with FFmpeg/NVDEC.
+- One GPU Flash job extracts review frames from the uploaded video with FFmpeg/NVDEC.
 - One Qwen image edit Flash job processes all approved keyframes as a batch.
 - One SAM-3 Flash job processes all approved edited images as a batch.
 - One export job writes COCO and JSONL outputs after the reviewed labels are accepted.
@@ -215,7 +216,7 @@ Flash deployment questions:
 - What latency is acceptable for the demo?
 - What worker minimum should be kept warm during demo time?
 - What maximum worker count protects cost while keeping the demo reliable?
-- How large should each stage level batch be for a 30 keyframe demo?
+- How large should each stage level batch be after the 5 frame demo path works reliably?
 - Should model weights live on a Flash network volume, in a build artifact, or behind an external model API?
 - Should later phases stay in `US-CA-2` with the phase 1 network volume, or should another datacenter be chosen for model availability?
 - Does the project need multi datacenter deployment?

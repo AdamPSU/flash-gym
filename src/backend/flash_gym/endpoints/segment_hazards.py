@@ -12,7 +12,15 @@ phase3_volume = NetworkVolume(
 
 @Endpoint(
     name="segment-hazards",
-    gpu=[GpuGroup.ADA_48_PRO, GpuGroup.AMPERE_48],
+    gpu=[
+        GpuGroup.ADA_48_PRO,
+        GpuGroup.AMPERE_48,
+        GpuGroup.ADA_80_PRO,
+        GpuGroup.AMPERE_80,
+        GpuGroup.BLACKWELL_96,
+        GpuGroup.HOPPER_141,
+        GpuGroup.BLACKWELL_180,
+    ],
     datacenter=DataCenter.US_CA_2,
     volume=phase3_volume,
     workers=(0, 1),
@@ -429,4 +437,199 @@ async def segment_hazards(input_data: dict) -> dict:
         "segmented_count": manifest["segmented_count"],
         "instance_count": manifest["instance_count"],
         "progress_path": progress_path,
+    }
+
+
+@Endpoint(
+    name="segment-hazards-smoke",
+    gpu=GpuGroup.ANY,
+    workers=(0, 1),
+    idle_timeout=600,
+    execution_timeout_ms=1800000,
+    template=PodTemplate(containerDiskInGb=80),
+    dependencies=[
+        "accelerate",
+        "huggingface_hub",
+        "numpy>=1.26,<2",
+        "pillow",
+        "safetensors",
+        "timm>=1.0.17",
+        "transformers>=4.57.3",
+    ],
+    env=build_sam3_endpoint_env(hf_home="/tmp/flash-gym/.cache/huggingface"),
+)
+async def segment_hazards_smoke(input_data: dict) -> dict:
+    from pathlib import Path
+    from urllib.request import Request, urlopen
+    from urllib.parse import urlparse
+    import re
+    import time
+
+    def validate_safe_slug(value: str, field_name: str) -> None:
+        if not re.fullmatch(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$", value):
+            raise ValueError(f"{field_name} must be a safe file-system slug")
+
+    def validate_threshold_value(value: float, field_name: str) -> None:
+        if value < 0 or value > 1:
+            raise ValueError(f"{field_name} must be between 0 and 1")
+
+    def validate_public_image_urls(image_urls: list[str]) -> tuple[str, ...]:
+        if not image_urls:
+            raise ValueError("image_urls cannot be empty")
+        if len(image_urls) > 8:
+            raise ValueError("image_urls cannot contain more than 8 items")
+        validated = []
+        for image_url in image_urls:
+            parsed = urlparse(image_url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError("image_urls must be absolute http or https URLs")
+            validated.append(image_url)
+        return tuple(validated)
+
+    started_at = time.time()
+    job_id = str(input_data.get("job_id") or "sam3-smoke")
+    validate_safe_slug(job_id, "job_id")
+    concept_prompt = str(input_data.get("concept_prompt") or "")
+    if not concept_prompt.strip():
+        raise ValueError("concept_prompt cannot be empty")
+    image_urls = validate_public_image_urls(list(input_data.get("image_urls") or ()))
+    score_threshold = float(input_data.get("score_threshold", 0.35))
+    mask_threshold = float(input_data.get("mask_threshold", 0.5))
+    validate_threshold_value(score_threshold, "score_threshold")
+    validate_threshold_value(mask_threshold, "mask_threshold")
+
+    root = Path("/tmp/flash-gym/jobs") / job_id
+    edited_dir = root / "edited"
+    masks_dir = root / "masks"
+    edited_dir.mkdir(parents=True, exist_ok=True)
+    masks_dir.mkdir(parents=True, exist_ok=True)
+    for old_file in list(edited_dir.glob("*")) + list(masks_dir.glob("*")):
+        if old_file.is_file():
+            old_file.unlink()
+
+    image_paths = []
+    for index, image_url in enumerate(image_urls, start=1):
+        suffix = Path(image_url.split("?", 1)[0]).suffix.lower()
+        if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+            suffix = ".jpg"
+        image_path = edited_dir / f"kf_{index:04d}_hazard{suffix}"
+        request = Request(image_url, headers={"User-Agent": "flash-gym-sam3-smoke-test"})
+        with urlopen(request, timeout=30) as response:
+            image_path.write_bytes(response.read(15 * 1024 * 1024))
+        image_paths.append(image_path)
+
+    import torch
+    from PIL import Image
+    from transformers import Sam3Model, Sam3Processor
+
+    model_id = str(input_data.get("model_id") or "facebook/sam3")
+    model_cache_dir = str(input_data.get("model_cache_dir") or "/tmp/flash-gym/models/sam3")
+
+    global _sam3_smoke_model
+    global _sam3_smoke_model_id
+    global _sam3_smoke_model_cache_dir
+    global _sam3_smoke_processor
+
+    if not (
+        "_sam3_smoke_model" in globals()
+        and "_sam3_smoke_processor" in globals()
+        and _sam3_smoke_model_id == model_id
+        and _sam3_smoke_model_cache_dir == model_cache_dir
+    ):
+        Path(model_cache_dir).mkdir(parents=True, exist_ok=True)
+        _sam3_smoke_model = Sam3Model.from_pretrained(
+            model_id,
+            cache_dir=model_cache_dir,
+            device_map="auto",
+            token=True,
+        )
+        _sam3_smoke_processor = Sam3Processor.from_pretrained(
+            model_id,
+            cache_dir=model_cache_dir,
+            token=True,
+        )
+        _sam3_smoke_model.eval()
+        _sam3_smoke_model_id = model_id
+        _sam3_smoke_model_cache_dir = model_cache_dir
+
+    device = getattr(_sam3_smoke_model, "device", None) or (
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )
+    images = []
+    image_sizes = []
+    try:
+        for image_path in image_paths:
+            image = Image.open(image_path).convert("RGB")
+            images.append(image)
+            image_sizes.append(image.size)
+
+        inputs = _sam3_smoke_processor(
+            images=images,
+            text=[concept_prompt] * len(images),
+            return_tensors="pt",
+        ).to(device)
+        target_sizes = inputs.get("original_sizes")
+        if hasattr(target_sizes, "tolist"):
+            target_sizes = target_sizes.tolist()
+        with torch.no_grad():
+            outputs = _sam3_smoke_model(**inputs)
+        results = _sam3_smoke_processor.post_process_instance_segmentation(
+            outputs,
+            threshold=score_threshold,
+            mask_threshold=mask_threshold,
+            target_sizes=target_sizes,
+        )
+    finally:
+        for image in images:
+            image.close()
+
+    output_images = []
+    instance_count = 0
+    for image_index, (image_path, image_size, result) in enumerate(
+        zip(image_paths, image_sizes, results),
+        start=1,
+    ):
+        frame_id = f"kf_{image_index:04d}"
+        width, height = image_size
+        instances = []
+        masks = result.get("masks", [])
+        boxes = result.get("boxes", [])
+        scores = result.get("scores", [])
+        for mask_index in range(len(masks)):
+            instance_id = f"{frame_id}_mask_{mask_index + 1:02d}"
+            mask_tensor = masks[mask_index].detach().cpu() > 0
+            mask_path = masks_dir / f"{instance_id}.png"
+            Image.fromarray(mask_tensor.to(dtype=torch.uint8).mul(255).numpy()).save(mask_path)
+            box = boxes[mask_index].detach().cpu().tolist()
+            score = float(scores[mask_index].detach().cpu().item())
+            instances.append(
+                {
+                    "instance_id": instance_id,
+                    "mask_path": str(mask_path),
+                    "bbox_xyxy": [round(float(value), 3) for value in box[:4]],
+                    "score": round(score, 6),
+                    "area_pixels": int(mask_tensor.sum().item()),
+                }
+            )
+        instance_count += len(instances)
+        output_images.append(
+            {
+                "frame_id": frame_id,
+                "edited_path": str(image_path),
+                "width": width,
+                "height": height,
+                "instances": instances,
+            }
+        )
+
+    return {
+        "job_id": job_id,
+        "status": "segmented" if instance_count else "no-instances-found",
+        "mode": "smoke_test",
+        "model_id": model_id,
+        "concept_prompt": concept_prompt,
+        "image_count": len(output_images),
+        "instance_count": instance_count,
+        "images": output_images,
+        "elapsed_seconds": round(time.time() - started_at, 3),
     }
