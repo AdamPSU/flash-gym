@@ -228,6 +228,34 @@ async def edit_hazards(input_data: dict) -> dict:
 
         torch_utils.maybe_adjust_dtype_for_device = maybe_adjust_dtype_for_device
 
+    def patch_flux2_klein_pipeline_guidance(pipeline) -> None:
+        import types
+        import torch
+
+        transformer = pipeline.transformer
+        if getattr(transformer, "_flash_gym_guidance_patch", False):
+            return
+
+        original_forward = transformer.forward
+
+        def patched_forward(self, *args, **kwargs):
+            if kwargs.get("guidance") is None:
+                hidden_states = kwargs.get("hidden_states")
+                if hidden_states is None and args:
+                    hidden_states = args[0]
+                if hidden_states is not None:
+                    kwargs["guidance"] = torch.full(
+                        [1],
+                        float(self._flash_gym_guidance_scale),
+                        device=hidden_states.device,
+                        dtype=torch.float32,
+                    )
+            return original_forward(*args, **kwargs)
+
+        transformer._flash_gym_guidance_scale = 1.0
+        transformer.forward = types.MethodType(patched_forward, transformer)
+        transformer._flash_gym_guidance_patch = True
+
     def ensure_flux2_klein_pipeline(
         model_id: str,
         model_cache_dir: str,
@@ -257,6 +285,7 @@ async def edit_hazards(input_data: dict) -> dict:
                 model_id=model_id,
                 model_cache_dir=model_cache_dir,
             )
+            patch_flux2_klein_pipeline_guidance(_flux2_klein_pipeline)
             return _flux2_klein_pipeline
 
         Path(model_cache_dir).mkdir(parents=True, exist_ok=True)
@@ -284,6 +313,7 @@ async def edit_hazards(input_data: dict) -> dict:
         with observed_phase(progress_path, "pipeline_cpu_offload", heartbeat_seconds, model_id=model_id):
             pipeline.enable_model_cpu_offload()
         pipeline.set_progress_bar_config(disable=True)
+        patch_flux2_klein_pipeline_guidance(pipeline)
         _flux2_klein_pipeline = pipeline
         _flux2_klein_model_id = model_id
         _flux2_klein_model_cache_dir = model_cache_dir
@@ -388,6 +418,7 @@ async def edit_hazards(input_data: dict) -> dict:
         previous_image.unlink()
 
     pipeline = ensure_flux2_klein_pipeline(model_id, model_cache_dir, progress_path, heartbeat_seconds)
+    pipeline.transformer._flash_gym_guidance_scale = guidance_scale
 
     import torch
     from PIL import Image

@@ -10,9 +10,9 @@ source_type: research-note
 
 Phase 2 is the hazard image editing stage after human keyframe review. The user clarified that the model must be hosted through Runpod Flash. Public Runpod image editing endpoints are not acceptable as the final phase 2 execution path.
 
-The first self-hosted Qwen Image Edit 2511 Flash endpoint targeted `GpuGroup.AMPERE_80`, but a real Flash warmup request waited because `AMPERE_80` capacity was unavailable in `US-CA-2`. The backend now targets Step1X-Edit v1.2 on 48 GB GPU pools as the smaller Flash-hosted candidate.
+The first self-hosted Qwen Image Edit 2511 Flash endpoint targeted `GpuGroup.AMPERE_80`, but a real Flash warmup request waited because `AMPERE_80` capacity was unavailable in `US-CA-2`. Step1X-Edit v1.2 was the next candidate, but it is no longer the active phase 2 target. The backend now targets `black-forest-labs/FLUX.2-klein-4B` on 48 GB GPU pools.
 
-Real Flash diagnostics for the Step1X endpoint succeeded through `flash dev --auto-provision`. The provisioned worker reported `NVIDIA RTX 6000 Ada Generation` with 47.37 GB VRAM and CUDA available. This validated Flash provisioning and endpoint body execution without loading the model.
+Real Flash diagnostics for the phase 2 endpoint succeeded through `flash dev --auto-provision`. The provisioned worker reported `NVIDIA RTX 6000 Ada Generation` with 47.37 GB VRAM and CUDA available. This validated Flash provisioning and endpoint body execution.
 
 ## Self-hosted candidates
 
@@ -20,7 +20,9 @@ Real Flash diagnostics for the Step1X endpoint succeeded through `flash dev --au
 
 `black-forest-labs/FLUX.1-Kontext-dev` is a 12B image editing model. Runpod docs describe it as a rectified flow transformer for text-instruction edits that preserves overall context and style. Artificial Analysis ranked Flux Kontext above Qwen in one image editing leaderboard snapshot. Hugging Face API metadata reported about 67 GB of model storage, gated access, and a non-commercial Flux dev license. This does not clearly solve the local model storage or deployment complexity problem.
 
-`Step1X-Edit` is a strong open-source candidate with Apache 2.0 licensing. The official repository claims strong open-source benchmark results and reports peak GPU memory around 42.5 GB, 46.5 GB, and 49.8 GB for 512, 786, and 1024 pixel runs. It reports 31 GB to 34 GB with FP8 and 18 GB with FP8 plus offload. The v1.2 model is `stepfun-ai/Step1X-Edit-v1p2`, uses a custom Diffusers branch, and Hugging Face API metadata reported about 41.8 GB of storage. This is now the default Flash-hosted phase 2 candidate.
+`Step1X-Edit` was a strong open-source candidate with Apache 2.0 licensing. The official repository claims strong open-source benchmark results and reports peak GPU memory around 42.5 GB, 46.5 GB, and 49.8 GB for 512, 786, and 1024 pixel runs. It reports 31 GB to 34 GB with FP8 and 18 GB with FP8 plus offload. The v1.2 model is `stepfun-ai/Step1X-Edit-v1p2`, uses a custom Diffusers branch, and Hugging Face API metadata reported about 41.8 GB of storage. Real warmup attempts exposed missing runtime dependencies, first `megfile`, then `torchvision`, so this is not the active path.
+
+`black-forest-labs/FLUX.2-klein-4B` is the active Flash-hosted phase 2 candidate. The model card identifies `Flux2KleinPipeline`, Apache 2.0 licensing, text-to-image and image editing capability, and a low step example using `guidance_scale=1.0` and `num_inference_steps=4`. The backend caches it under `/runpod-volume/models/flux2-klein-4b`, loads it with `low_cpu_mem_usage=False`, and uses `enable_model_cpu_offload()` on 48 GB workers. The pinned Diffusers Klein pipeline accepts `guidance_scale` but forwards `guidance=None` into the transformer, while the standard FLUX.2 pipeline creates a guidance tensor from `guidance_scale`; the endpoint patches the loaded Klein transformer to inject that tensor.
 
 Older lightweight instruction editors such as InstructPix2Pix are much easier to run, but they are not competitive enough for the current demo goal unless the demo prioritizes speed over edit realism.
 
@@ -52,9 +54,20 @@ These leaderboards are useful for quality direction but do not provide local GPU
 
 ## Recommendation
 
-For the hackathon demo, use a self-hosted Runpod Flash endpoint with Step1X-Edit v1.2 on 48 GB GPU pools. Keep Qwen Image Edit 2511 as the aspirational model if 80 GB capacity becomes available, but do not block phase 2 on it.
+For the hackathon demo, use a self-hosted Runpod Flash endpoint with `black-forest-labs/FLUX.2-klein-4B` on 48 GB GPU pools. Keep Qwen Image Edit 2511 as the aspirational model if 80 GB capacity becomes available, but do not block phase 2 on it.
 
 Use `mode: "diagnostics"` before `mode: "warmup"` so the endpoint reports the actual provisioned GPU and memory before any long model download or load. Do not run opaque long warmup calls without progress logs.
+
+## Validation completed
+
+Local validation passed after the FLUX.2 Klein guidance patch:
+
+```bash
+.venv/bin/python -m unittest discover -s tests
+.venv/bin/python -m compileall -q src/backend tests
+```
+
+Real Flash diagnostics, warmup, and one-frame edit completed through `flash dev --auto-provision --no-reload` on an RTX 6000 Ada worker. The successful edit used `job_id=runpod-venue`, `approved_frame_ids=["kf_0001"]`, `max_images=1`, `num_inference_steps=4`, `guidance_scale=1.0`, and `max_dimension=768`. It returned `status=edited`, `edited_count=1`, and wrote `/runpod-volume/jobs/runpod-venue/edit_manifest.json`.
 
 ## Open questions
 

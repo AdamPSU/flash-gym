@@ -4,7 +4,9 @@ import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 
 import {
   buildDemoExtractResponse,
+  buildDemoHazardFrames,
   buildDemoRunMetadata,
+  buildDemoSegmentationFrames,
   buildExtractKeyframesPayload,
   buildLoadingButtonState,
   buildManifestPath,
@@ -22,6 +24,9 @@ import {
 } from "../lib/pipeline";
 
 const initialJobId = "runpod-venue";
+const demoHazardGenerationDelayMs = 10_000;
+const demoSegmentationDelayMs = 5_000;
+type ReviewMode = "keyframes" | "hazards" | "segmentations";
 
 function createMockPreview(seed: number): string {
   const accent = ["#99edff", "#bfff00", "#ffc4dc"][seed % 3];
@@ -61,23 +66,47 @@ export default function PipelineConsole() {
   const [maxKeyframes, setMaxKeyframes] = useState(5);
   const [preferGpuDecode, setPreferGpuDecode] = useState(true);
   const [frames, setFrames] = useState(initialFrames);
+  const [hazardFrames, setHazardFrames] = useState<ReviewFrame[]>([]);
+  const [segmentationFrames, setSegmentationFrames] = useState<ReviewFrame[]>([]);
   const [activeFrameIndex, setActiveFrameIndex] = useState(0);
+  const [activeHazardIndex, setActiveHazardIndex] = useState(0);
+  const [activeSegmentationIndex, setActiveSegmentationIndex] = useState(0);
   const [extractResponse, setExtractResponse] = useState<ExtractKeyframesResponse | null>(null);
   const [requestState, setRequestState] = useState<RequestState>("idle");
+  const [hazardRequestState, setHazardRequestState] = useState<RequestState>("idle");
+  const [segmentationRequestState, setSegmentationRequestState] = useState<RequestState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [errorDetails, setErrorDetails] = useState("");
   const [demoMode, setDemoMode] = useState(false);
+  const [reviewMode, setReviewMode] = useState<ReviewMode>("keyframes");
+  const [hazardsApproved, setHazardsApproved] = useState(false);
 
   const videoPath = buildVolumeVideoPath(jobId);
   const manifestPath = buildManifestPath(jobId);
   const approvedCount = countApprovedFrames(frames);
-  const activeFrame = frames[activeFrameIndex] ?? null;
+  const approvedHazardCount = countApprovedFrames(hazardFrames);
+  const reviewFrames = reviewMode === "segmentations" ? segmentationFrames : reviewMode === "hazards" ? hazardFrames : frames;
+  const activeReviewIndex = reviewMode === "segmentations" ? activeSegmentationIndex : reviewMode === "hazards" ? activeHazardIndex : activeFrameIndex;
+  const activeFrame = reviewFrames[activeReviewIndex] ?? null;
   const stages = useMemo(
-    () => updateStageStates(buildPipelineRun(jobId), requestState, Boolean(extractResponse), approvedCount),
-    [approvedCount, extractResponse, jobId, requestState],
+    () =>
+      updateStageStates(
+        buildPipelineRun(jobId),
+        requestState,
+        Boolean(extractResponse),
+        approvedCount,
+        hazardFrames.length > 0,
+        hazardsApproved,
+        approvedHazardCount,
+        segmentationRequestState,
+        segmentationFrames.length,
+      ),
+    [approvedCount, approvedHazardCount, extractResponse, hazardFrames.length, hazardsApproved, jobId, requestState, segmentationFrames.length, segmentationRequestState],
   );
   const payload = buildExtractKeyframesPayload(jobId, maxKeyframes, preferGpuDecode);
   const extractButton = buildLoadingButtonState(requestState, "Extract keyframes", "Extracting keyframes");
+  const approveKeyframesButton = buildLoadingButtonState(hazardRequestState, "Approve keyframes", "Generating hazards");
+  const approveEditsButton = buildLoadingButtonState(segmentationRequestState, "Approve edits", "Running SAM3");
   const runTitle = buildRunTitle(selectedFile);
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -89,6 +118,11 @@ export default function PipelineConsole() {
     setJobId(createSafeJobId(file.name));
     setExtractResponse(null);
     setDemoMode(false);
+    setHazardFrames([]);
+    setSegmentationFrames([]);
+    setReviewMode("keyframes");
+    setHazardsApproved(false);
+    setSegmentationRequestState("idle");
   }
 
   async function handleExtract(event: FormEvent<HTMLFormElement>) {
@@ -102,6 +136,14 @@ export default function PipelineConsole() {
       setExtractResponse(body);
       setFrames(framesFromExtractResponse(body));
       setActiveFrameIndex(0);
+      setHazardFrames([]);
+      setSegmentationFrames([]);
+      setActiveHazardIndex(0);
+      setActiveSegmentationIndex(0);
+      setReviewMode("keyframes");
+      setHazardsApproved(false);
+      setHazardRequestState("idle");
+      setSegmentationRequestState("idle");
       setRequestState("idle");
       return;
     }
@@ -125,6 +167,14 @@ export default function PipelineConsole() {
       setExtractResponse(body);
       setFrames(extractedFrames);
       setActiveFrameIndex(0);
+      setHazardFrames([]);
+      setSegmentationFrames([]);
+      setActiveHazardIndex(0);
+      setActiveSegmentationIndex(0);
+      setReviewMode("keyframes");
+      setHazardsApproved(false);
+      setHazardRequestState("idle");
+      setSegmentationRequestState("idle");
       setRequestState("idle");
       setErrorDetails("");
     } catch (error) {
@@ -135,12 +185,15 @@ export default function PipelineConsole() {
   }
 
   function moveFrame(direction: -1 | 1) {
-    setActiveFrameIndex((current) => {
+    const totalFrames = reviewFrames.length;
+    const setIndex = reviewMode === "segmentations" ? setActiveSegmentationIndex : reviewMode === "hazards" ? setActiveHazardIndex : setActiveFrameIndex;
+
+    setIndex((current) => {
       const next = current + direction;
       if (next < 0) {
-        return frames.length - 1;
+        return totalFrames - 1;
       }
-      if (next >= frames.length) {
+      if (next >= totalFrames) {
         return 0;
       }
       return next;
@@ -151,7 +204,44 @@ export default function PipelineConsole() {
     if (!activeFrame) {
       return;
     }
+    if (reviewMode !== "keyframes") {
+      const setFramesForMode = reviewMode === "segmentations" ? setSegmentationFrames : setHazardFrames;
+      setFramesForMode((currentFrames) => toggleFrameDeleted(currentFrames, activeFrame.frameId));
+      setHazardsApproved(false);
+      setSegmentationFrames([]);
+      return;
+    }
     setFrames((currentFrames) => toggleFrameDeleted(currentFrames, activeFrame.frameId));
+    setHazardFrames([]);
+    setSegmentationFrames([]);
+    setReviewMode("keyframes");
+    setHazardsApproved(false);
+  }
+
+  async function generateDemoHazards() {
+    setHazardRequestState("submitting");
+    await new Promise((resolve) => setTimeout(resolve, demoHazardGenerationDelayMs));
+    const editedFrames = buildDemoHazardFrames(jobId, frames);
+    setHazardFrames(editedFrames);
+    setSegmentationFrames([]);
+    setActiveHazardIndex(0);
+    setActiveSegmentationIndex(0);
+    setReviewMode("hazards");
+    setHazardsApproved(false);
+    setHazardRequestState("idle");
+  }
+
+  async function approveHazards() {
+    if (approvedHazardCount === 0 || segmentationRequestState === "submitting") {
+      return;
+    }
+    setHazardsApproved(true);
+    setSegmentationRequestState("submitting");
+    await new Promise((resolve) => setTimeout(resolve, demoSegmentationDelayMs));
+    setSegmentationFrames(buildDemoSegmentationFrames(jobId, hazardFrames));
+    setActiveSegmentationIndex(0);
+    setReviewMode("segmentations");
+    setSegmentationRequestState("idle");
   }
 
   function toggleDemoMode() {
@@ -159,6 +249,12 @@ export default function PipelineConsole() {
       setDemoMode(false);
       setSelectedFile("");
       setExtractResponse(null);
+      setHazardFrames([]);
+      setSegmentationFrames([]);
+      setReviewMode("keyframes");
+      setHazardsApproved(false);
+      setHazardRequestState("idle");
+      setSegmentationRequestState("idle");
       setErrorMessage("");
       setErrorDetails("");
       return;
@@ -171,8 +267,16 @@ export default function PipelineConsole() {
     setMaxKeyframes(demo.maxKeyframes);
     setPreferGpuDecode(demo.preferGpuDecode);
     setFrames([]);
+    setHazardFrames([]);
+    setSegmentationFrames([]);
     setActiveFrameIndex(0);
+    setActiveHazardIndex(0);
+    setActiveSegmentationIndex(0);
     setExtractResponse(null);
+    setReviewMode("keyframes");
+    setHazardsApproved(false);
+    setHazardRequestState("idle");
+    setSegmentationRequestState("idle");
     setRequestState("idle");
     setErrorMessage("");
     setErrorDetails("");
@@ -277,12 +381,42 @@ export default function PipelineConsole() {
         <section className="artifactShell" aria-label="Keyframe artifact review">
           <div className="artifactHeader">
             <div>
-              <p className="eyebrow">Keyframe manifest</p>
+              <p className="eyebrow">
+                {reviewMode === "segmentations" ? "SAM3 segmentation" : reviewMode === "hazards" ? "Hazard edit review" : "Keyframe manifest"}
+              </p>
               <h3>{activeFrame?.frameId ?? "no frame selected"}</h3>
             </div>
-            <button className="ghostButton" type="button" onClick={() => setActiveFrameIndex(0)}>
-              Reset cursor
-            </button>
+            <div className="artifactActions">
+              {demoMode && extractResponse && reviewMode === "keyframes" ? (
+                <button
+                  className="approvalButton"
+                  type="button"
+                  onClick={generateDemoHazards}
+                  disabled={approvedCount === 0 || approveKeyframesButton.busy}
+                  aria-busy={approveKeyframesButton.busy}
+                  data-loading={approveKeyframesButton.busy ? "true" : undefined}
+                >
+                  {approveKeyframesButton.busy ? <span className="buttonSpinner" aria-hidden="true" /> : null}
+                  <span className="buttonText">{approveKeyframesButton.label}</span>
+                </button>
+              ) : null}
+              {reviewMode === "hazards" ? (
+                <button
+                  className="approvalButton"
+                  type="button"
+                  onClick={approveHazards}
+                  disabled={approvedHazardCount === 0 || approveEditsButton.busy}
+                  aria-busy={approveEditsButton.busy}
+                  data-loading={approveEditsButton.busy ? "true" : undefined}
+                >
+                  {approveEditsButton.busy ? <span className="buttonSpinner" aria-hidden="true" /> : null}
+                  <span className="buttonText">{approveEditsButton.label}</span>
+                </button>
+              ) : null}
+              <button className="ghostButton" type="button" disabled={segmentationFrames.length === 0}>
+                Export COCO / JSONL
+              </button>
+            </div>
           </div>
 
           <div className="artifactGrid">
@@ -302,7 +436,7 @@ export default function PipelineConsole() {
                 className="frameNavButton frameNavButtonPrev"
                 type="button"
                 onClick={() => moveFrame(-1)}
-                disabled={frames.length < 2}
+                disabled={reviewFrames.length < 2}
                 aria-label="Previous frame"
               >
                 ←
@@ -311,7 +445,7 @@ export default function PipelineConsole() {
                 className="frameNavButton frameNavButtonNext"
                 type="button"
                 onClick={() => moveFrame(1)}
-                disabled={frames.length < 2}
+                disabled={reviewFrames.length < 2}
                 aria-label="Next frame"
               >
                 →
@@ -333,8 +467,20 @@ export default function PipelineConsole() {
               <dl>
                 <div>
                   <dt>manifest</dt>
-                  <dd>{manifestPath}</dd>
+                  <dd>
+                    {reviewMode === "segmentations"
+                      ? `/runpod-volume/jobs/${jobId}/segmentation_manifest.json`
+                      : reviewMode === "hazards"
+                        ? `/runpod-volume/jobs/${jobId}/edited_manifest.json`
+                        : manifestPath}
+                  </dd>
                 </div>
+                {activeFrame?.prompt ? (
+                  <div>
+                    <dt>prompt</dt>
+                    <dd>{activeFrame.prompt}</dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>active frame</dt>
                   <dd>{activeFrame?.path ?? "waiting for extracted frames"}</dd>
@@ -351,15 +497,30 @@ export default function PipelineConsole() {
             </div>
           </div>
 
-          <div className="frameStrip" aria-label="Extracted frame candidates">
-            {frames.map((frame, index) => (
+          <div
+            className="frameStrip"
+            aria-label={
+              reviewMode === "segmentations"
+                ? "Generated SAM3 segmentations"
+                : reviewMode === "hazards"
+                  ? "Generated hazard edits"
+                  : "Extracted frame candidates"
+            }
+          >
+            {reviewFrames.map((frame, index) => (
               <button
                 className="frameThumb"
-                data-active={index === activeFrameIndex ? "true" : "false"}
+                data-active={index === activeReviewIndex ? "true" : "false"}
                 data-deleted={frame.deleted ? "true" : "false"}
                 key={frame.frameId}
                 type="button"
-                onClick={() => setActiveFrameIndex(index)}
+                onClick={() =>
+                  reviewMode === "segmentations"
+                    ? setActiveSegmentationIndex(index)
+                    : reviewMode === "hazards"
+                      ? setActiveHazardIndex(index)
+                      : setActiveFrameIndex(index)
+                }
                 aria-label={`Select ${frame.frameId}`}
               >
                 <span
@@ -393,6 +554,11 @@ function updateStageStates(
   requestState: RequestState,
   hasExtractResponse: boolean,
   approvedCount: number,
+  hasHazardFrames: boolean,
+  hazardsApproved: boolean,
+  approvedHazardCount: number,
+  segmentationRequestState: RequestState,
+  segmentationCount: number,
 ): PipelineStage[] {
   return stages.map((stage) => {
     if (stage.id === "extract-keyframes") {
@@ -405,7 +571,25 @@ function updateStageStates(
       return hasExtractResponse ? { ...stage, state: "done" } : stage;
     }
 
-    if (stage.id === "hazard-editing" && approvedCount > 0) {
+    if (stage.id === "hazard-editing") {
+      if (hazardsApproved || hasHazardFrames) {
+        return { ...stage, state: "done" };
+      }
+      if (approvedCount > 0) {
+        return { ...stage, state: "ready" };
+      }
+    }
+
+    if (stage.id === "segmentation") {
+      if (segmentationRequestState === "submitting") {
+        return { ...stage, state: "running" };
+      }
+      if (segmentationCount > 0) {
+        return { ...stage, state: "done" };
+      }
+    }
+
+    if (stage.id === "segmentation" && hazardsApproved && approvedHazardCount > 0) {
       return { ...stage, state: "ready" };
     }
 

@@ -11,10 +11,13 @@ export type PipelineStage = {
 
 export type ReviewFrame = {
   frameId: string;
+  imageId?: string;
   path: string;
   previewUrl?: string;
   timestampMs?: number;
   deleted: boolean;
+  sourceFrameId?: string;
+  prompt?: string;
 };
 
 export type ExtractKeyframesPayload = {
@@ -58,6 +61,14 @@ export type DemoRunMetadata = {
 };
 
 const DEMO_FRAME_IDS = ["kf_0001", "kf_0002", "kf_0003", "kf_0004", "kf_0005"];
+export const SAM3_DEMO_CONCEPT_PROMPT = "object on the floor";
+const DEMO_HAZARDS: Record<string, string> = {
+  kf_0001: "wet floor",
+  kf_0002: "loose cable",
+  kf_0003: "broken glass",
+  kf_0004: "wet floor",
+  kf_0005: "loose cable",
+};
 
 export function createSafeJobId(fileName: string): string {
   const withoutExtension = fileName.replace(/\.[^.]+$/, "");
@@ -102,6 +113,48 @@ export function buildDemoExtractResponse(jobId: string, maxKeyframes: number): E
     request: buildExtractKeyframesPayload(jobId, maxKeyframes, true),
     frames,
   };
+}
+
+export function buildDemoHazardFrames(jobId: string, frames: ReviewFrame[]): ReviewFrame[] {
+  return frames
+    .filter((frame) => !frame.deleted)
+    .map((frame) => {
+      const hazard = DEMO_HAZARDS[frame.frameId] ?? "wet floor";
+      const hazardSlug = hazard.replace(/\s+/g, "-");
+      const imageId = `${frame.frameId}_${hazardSlug}`;
+
+      return {
+        frameId: frame.frameId,
+        imageId,
+        path: `/runpod-volume/jobs/${jobId}/edited/${imageId}.png`,
+        previewUrl: `/api/demo-hazards/${imageId}.png`,
+        timestampMs: frame.timestampMs ?? demoTimestampMs(frame.frameId),
+        deleted: false,
+        sourceFrameId: frame.frameId,
+      };
+    });
+}
+
+export function buildDemoSegmentationFrames(jobId: string, frames: ReviewFrame[]): ReviewFrame[] {
+  return frames
+    .filter((frame) => !frame.deleted)
+    .map((frame) => {
+      const sourceFrameId = frame.sourceFrameId ?? frame.frameId;
+      return {
+        frameId: sourceFrameId,
+        path: `/runpod-volume/jobs/${jobId}/masks/${sourceFrameId}_sam3-object-on-the-floor.svg`,
+        previewUrl: `/api/demo-segmentations/${sourceFrameId}.svg`,
+        timestampMs: frame.timestampMs,
+        deleted: false,
+        sourceFrameId,
+        prompt: SAM3_DEMO_CONCEPT_PROMPT,
+      };
+    });
+}
+
+function demoTimestampMs(frameId: string): number | undefined {
+  const index = DEMO_FRAME_IDS.indexOf(frameId);
+  return index === -1 ? undefined : (index + 1) * 5000;
 }
 
 export function buildVolumeVideoPath(jobId: string): string {
@@ -158,7 +211,7 @@ export function buildPipelineRun(jobId: string): PipelineStage[] {
     {
       id: "segmentation",
       label: "image segmentation",
-      detail: "SAM-3 contract exists; segment-hazards Flash endpoint is not wired here yet.",
+      detail: "SAM-3 demo artifacts use a broad object-on-the-floor prompt.",
       state: "locked",
     },
   ];

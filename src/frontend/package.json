@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "generate:sam3-demo": "node ../../scripts/generate-sam3-demo-segmentations.mjs",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",

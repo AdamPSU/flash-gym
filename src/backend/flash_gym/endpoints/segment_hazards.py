@@ -30,7 +30,7 @@ phase3_volume = NetworkVolume(
     dependencies=[
         "accelerate",
         "huggingface_hub",
-        "numpy>=1.26,<2",
+        "numpy==2.2.6",
         "pillow",
         "safetensors",
         "timm>=1.0.17",
@@ -450,7 +450,7 @@ async def segment_hazards(input_data: dict) -> dict:
     dependencies=[
         "accelerate",
         "huggingface_hub",
-        "numpy>=1.26,<2",
+        "numpy==2.2.6",
         "pillow",
         "safetensors",
         "timm>=1.0.17",
@@ -518,75 +518,106 @@ async def segment_hazards_smoke(input_data: dict) -> dict:
             image_path.write_bytes(response.read(15 * 1024 * 1024))
         image_paths.append(image_path)
 
-    import torch
-    from PIL import Image
-    from transformers import Sam3Model, Sam3Processor
+    import subprocess
+    import sys
+    import json
+
+    numpy_version = str(input_data.get("numpy_version") or "2.2.6")
+    print(f"flash-gym-smoke repairing numpy=={numpy_version}", flush=True)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--force-reinstall",
+            "--no-cache-dir",
+            "-q",
+            f"numpy=={numpy_version}",
+        ],
+        check=True,
+    )
+    print("flash-gym-smoke numpy repair complete", flush=True)
 
     model_id = str(input_data.get("model_id") or "facebook/sam3")
     model_cache_dir = str(input_data.get("model_cache_dir") or "/tmp/flash-gym/models/sam3")
-
-    global _sam3_smoke_model
-    global _sam3_smoke_model_id
-    global _sam3_smoke_model_cache_dir
-    global _sam3_smoke_processor
-
-    if not (
-        "_sam3_smoke_model" in globals()
-        and "_sam3_smoke_processor" in globals()
-        and _sam3_smoke_model_id == model_id
-        and _sam3_smoke_model_cache_dir == model_cache_dir
-    ):
-        Path(model_cache_dir).mkdir(parents=True, exist_ok=True)
-        _sam3_smoke_model = Sam3Model.from_pretrained(
-            model_id,
-            cache_dir=model_cache_dir,
-            device_map="auto",
-            token=True,
-        )
-        _sam3_smoke_processor = Sam3Processor.from_pretrained(
-            model_id,
-            cache_dir=model_cache_dir,
-            token=True,
-        )
-        _sam3_smoke_model.eval()
-        _sam3_smoke_model_id = model_id
-        _sam3_smoke_model_cache_dir = model_cache_dir
-
-    device = getattr(_sam3_smoke_model, "device", None) or (
-        "cuda" if torch.cuda.is_available() else "cpu"
+    request_path = root / "smoke_request.json"
+    result_path = root / "smoke_result.json"
+    script_path = root / "run_sam3_smoke.py"
+    request_path.write_text(
+        json.dumps(
+            {
+                "job_id": job_id,
+                "model_id": model_id,
+                "model_cache_dir": model_cache_dir,
+                "concept_prompt": concept_prompt,
+                "score_threshold": score_threshold,
+                "mask_threshold": mask_threshold,
+                "image_paths": [str(path) for path in image_paths],
+                "masks_dir": str(masks_dir),
+                "started_at": started_at,
+            }
+        ),
+        encoding="utf-8",
     )
-    images = []
+    script_path.write_text(
+        r'''
+import json
+import time
+from pathlib import Path
+
+import torch
+from PIL import Image
+from transformers import Sam3Model, Sam3Processor
+
+
+def main(request_path, result_path):
+    request = json.loads(Path(request_path).read_text(encoding="utf-8"))
+    model = Sam3Model.from_pretrained(
+        request["model_id"],
+        cache_dir=request["model_cache_dir"],
+        device_map="auto",
+        token=True,
+    )
+    processor = Sam3Processor.from_pretrained(
+        request["model_id"],
+        cache_dir=request["model_cache_dir"],
+        token=True,
+    )
+    model.eval()
+    device = getattr(model, "device", None) or ("cuda" if torch.cuda.is_available() else "cpu")
+    pil_images = []
     image_sizes = []
     try:
-        for image_path in image_paths:
+        for image_path in request["image_paths"]:
             image = Image.open(image_path).convert("RGB")
-            images.append(image)
+            pil_images.append(image)
             image_sizes.append(image.size)
-
-        inputs = _sam3_smoke_processor(
-            images=images,
-            text=[concept_prompt] * len(images),
+        inputs = processor(
+            images=pil_images,
+            text=[request["concept_prompt"]] * len(pil_images),
             return_tensors="pt",
         ).to(device)
         target_sizes = inputs.get("original_sizes")
         if hasattr(target_sizes, "tolist"):
             target_sizes = target_sizes.tolist()
         with torch.no_grad():
-            outputs = _sam3_smoke_model(**inputs)
-        results = _sam3_smoke_processor.post_process_instance_segmentation(
+            outputs = model(**inputs)
+        results = processor.post_process_instance_segmentation(
             outputs,
-            threshold=score_threshold,
-            mask_threshold=mask_threshold,
+            threshold=request["score_threshold"],
+            mask_threshold=request["mask_threshold"],
             target_sizes=target_sizes,
         )
     finally:
-        for image in images:
+        for image in pil_images:
             image.close()
 
+    masks_dir = Path(request["masks_dir"])
     output_images = []
     instance_count = 0
     for image_index, (image_path, image_size, result) in enumerate(
-        zip(image_paths, image_sizes, results),
+        zip(request["image_paths"], image_sizes, results),
         start=1,
     ):
         frame_id = f"kf_{image_index:04d}"
@@ -615,21 +646,48 @@ async def segment_hazards_smoke(input_data: dict) -> dict:
         output_images.append(
             {
                 "frame_id": frame_id,
-                "edited_path": str(image_path),
+                "edited_path": image_path,
                 "width": width,
                 "height": height,
                 "instances": instances,
             }
         )
+    Path(result_path).write_text(
+        json.dumps(
+            {
+                "job_id": request["job_id"],
+                "status": "segmented" if instance_count else "no-instances-found",
+                "mode": "smoke_test",
+                "model_id": request["model_id"],
+                "concept_prompt": request["concept_prompt"],
+                "image_count": len(output_images),
+                "instance_count": instance_count,
+                "images": output_images,
+                "elapsed_seconds": round(time.time() - request["started_at"], 3),
+            }
+        ),
+        encoding="utf-8",
+    )
 
-    return {
-        "job_id": job_id,
-        "status": "segmented" if instance_count else "no-instances-found",
-        "mode": "smoke_test",
-        "model_id": model_id,
-        "concept_prompt": concept_prompt,
-        "image_count": len(output_images),
-        "instance_count": instance_count,
-        "images": output_images,
-        "elapsed_seconds": round(time.time() - started_at, 3),
-    }
+
+if __name__ == "__main__":
+    import sys
+    main(sys.argv[1], sys.argv[2])
+'''.strip(),
+        encoding="utf-8",
+    )
+    print("flash-gym-smoke launching isolated SAM3 subprocess", flush=True)
+    completed = subprocess.run(
+        [sys.executable, str(script_path), str(request_path), str(result_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=int(input_data.get("subprocess_timeout_seconds", 900)),
+    )
+    if completed.stdout:
+        print(completed.stdout[-4000:], flush=True)
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr[-4000:] or "SAM3 smoke subprocess failed")
+    if completed.stderr:
+        print(completed.stderr[-4000:], flush=True)
+    return json.loads(result_path.read_text(encoding="utf-8"))

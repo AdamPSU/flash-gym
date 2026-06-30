@@ -32,7 +32,9 @@ The upload path for a demo video should be:
 /runpod-volume/jobs/{job_id}/input/video.mov
 ```
 
-Runpod S3 compatible upload can copy a local video into this volume without using AWS storage. The bucket value is the Runpod network volume ID, and the endpoint should match the volume datacenter.
+Runpod S3 compatible upload can copy a local video into this volume without using AWS storage. The bucket value is the Runpod network volume ID, and the endpoint should match the volume datacenter. This is deferred for now because the demo uses a preloaded video on the Runpod volume.
+
+Runpod S3 upload credentials were searched locally on 2026-06-30. `RUNPOD_S3_ACCESS_KEY_ID`, `RUNPOD_S3_SECRET_ACCESS_KEY`, `RUNPOD_S3_ACCESS_KEY`, `RUNPOD_S3_SECRET_KEY`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` were not set in the shell environment. The project only has `src/frontend/.env.local`, and it does not contain Runpod S3 keys. No local AWS credentials or config file exists. Runpod documentation says S3 API key secrets are shown only once in the console, so an existing secret cannot be retrieved through the available local config, Flash CLI, or Runpod MCP tools.
 
 ## Files
 
@@ -95,6 +97,6 @@ The local Next.js API route at `http://localhost:3000/api/keyframes/extract` was
 
 ## Remaining backend steps
 
-- Replace the temporary upload workaround with the Runpod S3 compatible upload helper after `RUNPOD_S3_ACCESS_KEY_ID` and `RUNPOD_S3_SECRET_ACCESS_KEY` are available.
+- Keep using the preloaded demo video on the Runpod volume. Runpod S3 upload is not needed for the current demo.
 - Clean up stale phase 1 Runpod endpoints after confirming no demos depend on them.
 - Confirm NVDEC behavior on the deployed worker over a larger sample or record the CPU fallback reason if CUDA decode is unavailable.

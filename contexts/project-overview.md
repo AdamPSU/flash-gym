@@ -83,6 +83,9 @@ Current frontend notes:
 - Keyframe review actions should live inside the manifest frame: previous and next arrows over the preview, plus an X button in the top right to remove or restore the active frame. Do not show an isolated review buffer box in the left pane.
 - Buttons that start a wait should show clear loading feedback. The pipeline run header should not show the `local setup` status pill.
 - Demo mode uses the real venue keyframes under `media/`. In demo mode, clicking `Extract keyframes` should populate the keyframe manifest from those local images instead of calling the Runpod proxy.
+- Demo hazard segmentation should use static SAM3 artifacts generated once from images under `media/hazards/`. The mock UI should switch to those artifacts after a short delay when edited images are approved, not call SAM3 at runtime.
+- Demo mode has local WaveSpeed generated hazard edits under `media/hazards/`. After demo keyframes are extracted, `Approve keyframes` is a purple CTA that waits about 10 seconds to simulate generation before switching the review panel to edited images. The same remove and restore controls apply to edited images. After `Approve edits`, the phase 3 CTA should read `Segment hazards` and use the purple CTA style.
+- The artifact header should not show a `Reset cursor` control. That action slot is reserved for a live-looking `Export COCO / JSONL` button, enabled after edited hazards are approved.
 
 ## Serverless constraints
 
@@ -112,6 +115,7 @@ For a demo capped at 5 review frames, the target shape is:
 - One GPU Flash job extracts review frames from the uploaded video with FFmpeg/NVDEC.
 - One Qwen image edit Flash job processes all approved keyframes as a batch.
 - One SAM-3 Flash job processes all approved edited images as a batch.
+- For demo mocks, one offline generation command calls hosted SAM3 for the edited images, then the frontend uses static generated segmentations during the presentation.
 - One export job writes COCO and JSONL outputs after the reviewed labels are accepted.
 
 The practical goal is one cold start per stage when needed, not one cold start per image.

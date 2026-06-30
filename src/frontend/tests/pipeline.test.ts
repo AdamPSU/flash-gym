@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildExtractKeyframesPayload,
   buildDemoExtractResponse,
+  buildDemoHazardFrames,
+  buildDemoSegmentationFrames,
   buildDemoRunMetadata,
   buildLoadingButtonState,
   buildPipelineRun,
@@ -107,6 +109,70 @@ describe("pipeline helpers", () => {
     });
   });
 
+  it("builds local demo hazard edits from approved keyframes", () => {
+    expect(
+      buildDemoHazardFrames("runpod-venue", [
+        { frameId: "kf_0001", path: "/runpod-volume/jobs/runpod-venue/keyframes/kf_0001.png", deleted: false },
+        { frameId: "kf_0002", path: "/runpod-volume/jobs/runpod-venue/keyframes/kf_0002.png", deleted: true },
+        { frameId: "kf_0003", path: "/runpod-volume/jobs/runpod-venue/keyframes/kf_0003.png", deleted: false },
+      ]),
+    ).toEqual([
+      {
+        frameId: "kf_0001",
+        imageId: "kf_0001_wet-floor",
+        path: "/runpod-volume/jobs/runpod-venue/edited/kf_0001_wet-floor.png",
+        previewUrl: "/api/demo-hazards/kf_0001_wet-floor.png",
+        timestampMs: 5000,
+        deleted: false,
+        sourceFrameId: "kf_0001",
+      },
+      {
+        frameId: "kf_0003",
+        imageId: "kf_0003_broken-glass",
+        path: "/runpod-volume/jobs/runpod-venue/edited/kf_0003_broken-glass.png",
+        previewUrl: "/api/demo-hazards/kf_0003_broken-glass.png",
+        timestampMs: 15000,
+        deleted: false,
+        sourceFrameId: "kf_0003",
+      },
+    ]);
+  });
+
+  it("builds static demo SAM3 segmentation frames without hazard labels", () => {
+    expect(
+      buildDemoSegmentationFrames("runpod-venue", [
+        {
+          frameId: "kf_0001",
+          imageId: "kf_0001_wet-floor",
+          path: "/runpod-volume/jobs/runpod-venue/edited/kf_0001_wet-floor.png",
+          previewUrl: "/api/demo-hazards/kf_0001_wet-floor.png",
+          timestampMs: 5000,
+          deleted: false,
+          sourceFrameId: "kf_0001",
+        },
+        {
+          frameId: "kf_0002",
+          imageId: "kf_0002_loose-cable",
+          path: "/runpod-volume/jobs/runpod-venue/edited/kf_0002_loose-cable.png",
+          previewUrl: "/api/demo-hazards/kf_0002_loose-cable.png",
+          timestampMs: 10000,
+          deleted: true,
+          sourceFrameId: "kf_0002",
+        },
+      ]),
+    ).toEqual([
+      {
+        frameId: "kf_0001",
+        path: "/runpod-volume/jobs/runpod-venue/masks/kf_0001_sam3-object-on-the-floor.svg",
+        previewUrl: "/api/demo-segmentations/kf_0001.svg",
+        timestampMs: 5000,
+        deleted: false,
+        sourceFrameId: "kf_0001",
+        prompt: "object on the floor",
+      },
+    ]);
+  });
+
   it("models the current stage order without making future stages actionable", () => {
     expect(buildPipelineRun("runpod-venue")).toEqual([
       {
@@ -124,7 +190,7 @@ describe("pipeline helpers", () => {
       {
         id: "segmentation",
         label: "image segmentation",
-        detail: "SAM-3 contract exists; segment-hazards Flash endpoint is not wired here yet.",
+        detail: "SAM-3 demo artifacts use a broad object-on-the-floor prompt.",
         state: "locked",
       },
     ]);

@@ -58,6 +58,10 @@ The manifest includes schema version, stage, job ID, model ID, concept prompt, s
 
 The endpoint lazy loads `Sam3Model` and `Sam3Processor` once per worker and reuses them for the batch. Model and Hugging Face cache paths point at `/runpod-volume/` so the model is not part of the Flash artifact.
 
+Meta's official SAM3 release provides code, checkpoints, and a playground, not a confirmed hosted production API. Roboflow documents a hosted SAM3 HTTP API at `https://serverless.roboflow.com/sam3/concept_segment`, plus related visual segmentation endpoints. This is useful as a reference or fallback, but the project baseline remains the Runpod Flash `segment-hazards` endpoint because the hackathon constraint is to use Flash for cloud execution.
+
+For the demo mock path, SAM3 should run once offline against the hazard edits under `media/hazards/` and write static overlays plus a manifest under `media/segmentations/`. The frontend mock should only read those static generated artifacts. The offline generation uses the broad prompt `object on the floor` and must not send the known hazard labels from demo filenames or the phase 2 edit prompt.
+
 Warmup mode is supported with:
 
 ```json
@@ -96,3 +100,17 @@ The following checks passed locally with `.venv/bin/python`:
 Local interactive zsh reported that `HF_TOKEN` is present without printing the token value.
 
 Real SAM3 inference has not completed yet. Attempts with `AMPERE_80`, then 48 GB and broader fallback pools, remained queued with no worker after bounded polling. The smoke job was cancelled and local `flash dev` was stopped. Current blocker is Runpod worker capacity/provisioning for the `segment-hazards` endpoint in `US-CA-2`, not a SAM3 inference error.
+
+A later dev-only smoke endpoint using `GpuGroup.ANY` provisioned quickly and reached Python. It exposed two implementation issues: worker-side HTTPS certificate mismatch for `https://images.cocodataset.org/...`, avoided by using `http://` for COCO smoke images, and a NumPy binary incompatibility in the dependency layer. The SAM3 endpoints now pin `numpy==2.2.6`; the dev smoke endpoint also force reinstalls that wheel and runs SAM3 inference in a child Python process so the worker does not use a mixed NumPy import state.
+
+The dev-only smoke endpoint completed successfully on real COCO images with `concept_prompt` set to `cat`:
+
+```text
+job_id: sam3-smoke-any-cats-subprocess
+model_id: facebook/sam3
+image_count: 2
+instance_count: 3
+elapsed_seconds: 55.903
+```
+
+The output mask paths were under `/tmp/flash-gym/jobs/sam3-smoke-any-cats-subprocess/masks/` on the worker. This validates Hugging Face gated model access, model load, promptable segmentation, mask writing, and response serialization for a no-volume smoke path. It does not yet validate the production `/runpod-volume/` path because that endpoint is still constrained by the `US-CA-2` network volume and GPU availability.

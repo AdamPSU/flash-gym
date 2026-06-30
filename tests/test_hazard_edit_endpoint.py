@@ -43,6 +43,15 @@ class HazardEditEndpointTests(unittest.TestCase):
         self.assertIn("black-forest-labs/FLUX.2-klein-4B", source)
         self.assertNotIn("Step1XEditPipelineV1P2", source)
 
+    def test_endpoint_patches_flux2_klein_guidance_none_bug(self):
+        source = inspect.getsource(edit_hazards)
+
+        self.assertIn("patch_flux2_klein_pipeline_guidance", source)
+        self.assertIn("_flash_gym_guidance_scale", source)
+        self.assertIn("kwargs[\"guidance\"]", source)
+        self.assertIn("torch.full(", source)
+        self.assertIn("float(self._flash_gym_guidance_scale)", source)
+
 
 if __name__ == "__main__":
     unittest.main()

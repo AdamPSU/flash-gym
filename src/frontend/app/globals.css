@@ -189,7 +189,8 @@ input:focus-visible {
 
 .primaryButton,
 .ghostButton,
-.demoButton {
+.demoButton,
+.approvalButton {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -239,7 +240,8 @@ input:focus-visible {
 
 .primaryButton:hover:not(:disabled),
 .ghostButton:hover,
-.demoButton:hover {
+.demoButton:hover,
+.approvalButton:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
@@ -277,6 +279,22 @@ input:focus-visible {
   border-color: rgba(191, 255, 0, 0.5);
   background: rgba(191, 255, 0, 0.12);
   color: var(--lime);
+}
+
+.approvalButton {
+  min-height: 36px;
+  border: 1px solid transparent;
+  background: var(--purple);
+  color: white;
+  padding: 0 16px;
+}
+
+.approvalButton[data-loading="true"] {
+  border-color: rgba(153, 237, 255, 0.42);
+  background: linear-gradient(90deg, var(--purple-dark), var(--purple), #8c4dff, var(--purple-dark));
+  background-size: 240% 100%;
+  opacity: 1;
+  animation: buttonLoadSweep 950ms linear infinite;
 }
 
 .errorText {
@@ -416,6 +434,13 @@ input:focus-visible {
   gap: 16px;
   align-items: start;
   margin-bottom: 12px;
+}
+
+.artifactActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .artifactHeader h3 {
