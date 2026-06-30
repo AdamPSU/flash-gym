@@ -1,0 +1,12 @@
+.venv/
+.flash/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+node_modules/
+.next/
+out/
+dist/
+.env*.local
