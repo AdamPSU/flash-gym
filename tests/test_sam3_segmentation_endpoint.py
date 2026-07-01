@@ -40,6 +40,7 @@ class Sam3SegmentationEndpointTests(unittest.TestCase):
         self.assertIn("image_data_urls", source)
         self.assertIn("frame_ids", source)
         self.assertIn("preview_url", source)
+        self.assertIn("pillow", source)
 
 
 if __name__ == "__main__":

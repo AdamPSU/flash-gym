@@ -558,7 +558,7 @@ async def segment_hazards_smoke(input_data: dict) -> dict:
     import sys
 
     numpy_version = str(input_data.get("numpy_version") or "2.2.6")
-    print(f"flash-gym-smoke repairing numpy=={numpy_version}", flush=True)
+    print(f"flash-gym-smoke repairing numpy=={numpy_version} and pillow", flush=True)
     subprocess.run(
         [
             sys.executable,
@@ -569,10 +569,11 @@ async def segment_hazards_smoke(input_data: dict) -> dict:
             "--no-cache-dir",
             "-q",
             f"numpy=={numpy_version}",
+            "pillow",
         ],
         check=True,
     )
-    print("flash-gym-smoke numpy repair complete", flush=True)
+    print("flash-gym-smoke dependency repair complete", flush=True)
 
     model_id = str(input_data.get("model_id") or "facebook/sam3")
     model_cache_dir = str(input_data.get("model_cache_dir") or "/tmp/flash-gym/models/sam3")
